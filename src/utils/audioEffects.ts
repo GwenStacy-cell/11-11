@@ -6,6 +6,7 @@ class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private currentVolume: number = 0.85;
+  private currentLiveAudio: HTMLAudioElement | null = null;
 
   private getContext(): AudioContext {
     if (!this.ctx) {
@@ -224,6 +225,45 @@ class AudioEngine {
         osc.stop(now + i * 0.08 + 0.12);
       });
     }
+  }
+
+  // Play live incoming real-time audio stream from friend
+  playLiveStream(stream: MediaStream, onStart?: () => void) {
+    try {
+      this.playPttStart();
+      setTimeout(() => {
+        this.playStaticBurst(0.1, 0.12);
+      }, 70);
+
+      const audio = new Audio();
+      audio.srcObject = stream;
+      audio.volume = this.currentVolume;
+      audio.autoplay = true;
+      this.currentLiveAudio = audio;
+
+      audio.play().catch((err) => {
+        console.warn('Autoplay error on live stream:', err);
+      });
+
+      onStart?.();
+    } catch (e) {
+      console.warn('Error playing live stream:', e);
+    }
+  }
+
+  // Stop live stream and play Roger beep
+  stopLiveStream(onEnd?: () => void) {
+    if (this.currentLiveAudio) {
+      try {
+        this.currentLiveAudio.pause();
+        this.currentLiveAudio.srcObject = null;
+      } catch {
+        // ignore
+      }
+      this.currentLiveAudio = null;
+    }
+    this.playRogerBeep();
+    onEnd?.();
   }
 
   // Play real recorded voice audio through Web Audio API with radio filters & beeps

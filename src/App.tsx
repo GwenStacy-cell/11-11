@@ -121,12 +121,142 @@ export default function App() {
   const [isLockedOnAir, setIsLockedOnAir] = useState(false);
   const [isReceiving, setIsReceiving] = useState(false);
   const [incomingSender, setIncomingSender] = useState<string | null>(null);
+  const [incomingSenderPin, setIncomingSenderPin] = useState<string | null>(null);
   const [incomingText, setIncomingText] = useState<string | null>(null);
   const [isDnd, setIsDnd] = useState(false);
   const [voiceFilter, setVoiceFilter] = useState<VoiceFilter>('classic-walkie');
   const [transmissionDuration, setTransmissionDuration] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
   const [hasMicPermission, setHasMicPermission] = useState(false);
+
+  // Blocked Friends PINs
+  const [blockedPins, setBlockedPins] = useState<string[]>(() => {
+    const saved = localStorage.getItem('tenten_blocked_pins');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  });
+
+  // Save blocked pins to localStorage
+  useEffect(() => {
+    localStorage.setItem('tenten_blocked_pins', JSON.stringify(blockedPins));
+  }, [blockedPins]);
+
+  const handleBlockPin = useCallback((pin: string) => {
+    setBlockedPins((prev) => (prev.includes(pin) ? prev : [...prev, pin]));
+  }, []);
+
+  const handleUnblockPin = useCallback((pin: string) => {
+    setBlockedPins((prev) => prev.filter((p) => p !== pin));
+  }, []);
+
+  const handleToggleBlockPin = useCallback((pin: string) => {
+    setBlockedPins((prev) => (prev.includes(pin) ? prev.filter((p) => p !== pin) : [...prev, pin]));
+  }, []);
+
+  // 5-minute mute dictionary: { [pin]: timestampUntilMuted }
+  const [mutedUntil, setMutedUntil] = useState<Record<string, number>>({});
+
+  const handleMuteFriend = useCallback((pin: string, minutes: number = 5) => {
+    const until = Date.now() + minutes * 60 * 1000;
+    setMutedUntil((prev) => ({ ...prev, [pin]: until }));
+    audioEngine.stopLiveStream();
+    setIsReceiving(false);
+    setIncomingSender(null);
+    setIncomingSenderPin(null);
+    audioEngine.playPokeSound();
+  }, []);
+
+  const handleMuteCurrentSender = useCallback(() => {
+    if (incomingSenderPin) {
+      handleMuteFriend(incomingSenderPin, 5);
+    } else {
+      audioEngine.stopLiveStream();
+      setIsReceiving(false);
+      setIncomingSender(null);
+      setIncomingSenderPin(null);
+    }
+  }, [incomingSenderPin, handleMuteFriend]);
+
+  // Dynamic state refs for async listeners
+  const blockedPinsRef = useRef(blockedPins);
+  blockedPinsRef.current = blockedPins;
+
+  const mutedUntilRef = useRef(mutedUntil);
+  mutedUntilRef.current = mutedUntil;
+
+  const friendsRef = useRef(friends);
+  friendsRef.current = friends;
+
+  const isDndRef = useRef(isDnd);
+  isDndRef.current = isDnd;
+
+  // Request notifications gracefully on initial user interaction
+  useEffect(() => {
+    const handleFirstUserGesture = () => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+      window.removeEventListener('click', handleFirstUserGesture);
+      window.removeEventListener('touchstart', handleFirstUserGesture);
+    };
+    window.addEventListener('click', handleFirstUserGesture);
+    window.addEventListener('touchstart', handleFirstUserGesture);
+    return () => {
+      window.removeEventListener('click', handleFirstUserGesture);
+      window.removeEventListener('touchstart', handleFirstUserGesture);
+    };
+  }, []);
+
+  // Show speaker notification (works when backgrounded / outside app)
+  const showSpeakerNotification = useCallback(
+    (senderName: string, senderPin: string) => {
+      // 1. Lock screen media session
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: `${senderName} is speaking live...`,
+            artist: '11:11 Walkie-Talkie',
+            album: 'Tap to mute for 5 mins',
+            artwork: [
+              { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+              { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+            ],
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2. Web Notification (even outside the app)
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          const notif = new Notification(`${senderName} is speaking...`, {
+            body: 'Tap to mute for 5 mins',
+            tag: 'tenten-speaking',
+            icon: '/pwa-192x192.png',
+            badge: '/pwa-192x192.png',
+            silent: false,
+          });
+
+          notif.onclick = () => {
+            window.focus();
+            handleMuteFriend(senderPin, 5);
+            notif.close();
+          };
+        } catch (e) {
+          console.warn('Notification error:', e);
+        }
+      }
+    },
+    [handleMuteFriend]
+  );
 
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -237,35 +367,32 @@ export default function App() {
       if (msg.senderPin === myPin) return;
       if (msg.targetPin && msg.targetPin !== myPin) return;
 
+      // Discard messages from blocked or temporarily muted friends
+      if (blockedPinsRef.current.includes(msg.senderPin)) return;
+      if ((mutedUntilRef.current[msg.senderPin] || 0) > Date.now()) return;
+
       if (msg.type === 'ptt-start') {
-        if (!isDnd) {
+        if (!isDndRef.current) {
           setIsReceiving(true);
           setIncomingSender(msg.senderName);
+          setIncomingSenderPin(msg.senderPin);
           audioEngine.playPttStart();
+          showSpeakerNotification(msg.senderName, msg.senderPin);
         }
       } else if (msg.type === 'ptt-stop') {
-        if (!isDnd) {
+        if (!isDndRef.current) {
           audioEngine.playRogerBeep();
         }
+        audioEngine.stopLiveStream();
         setIsReceiving(false);
         setIncomingSender(null);
+        setIncomingSenderPin(null);
       } else if (msg.type === 'voice-message' && msg.audioData) {
-        if (!isDnd) {
+        if (!isDndRef.current) {
           setIsReceiving(true);
           setIncomingSender(msg.senderName);
-
-          // Update lock screen media session
-          if ('mediaSession' in navigator) {
-            navigator.mediaSession.metadata = new MediaMetadata({
-              title: '11:11 Live Walkie',
-              artist: `${msg.senderName} is talking`,
-              album: 'Live Walkie Channel',
-              artwork: [
-                { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-                { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-              ],
-            });
-          }
+          setIncomingSenderPin(msg.senderPin);
+          showSpeakerNotification(msg.senderName, msg.senderPin);
 
           audioEngine.playRecordedVoice(
             msg.audioData,
@@ -274,6 +401,7 @@ export default function App() {
             () => {
               setIsReceiving(false);
               setIncomingSender(null);
+              setIncomingSenderPin(null);
             }
           );
         }
@@ -292,7 +420,7 @@ export default function App() {
           ...prev,
         ]);
       } else if (msg.type === 'poke') {
-        if (!isDnd) {
+        if (!isDndRef.current) {
           audioEngine.playPokeSound();
           triggerScreenShake();
         }
@@ -310,7 +438,7 @@ export default function App() {
           ...prev,
         ]);
       } else if (msg.type === 'soundboard') {
-        if (!isDnd) {
+        if (!isDndRef.current) {
           setLogs((prev) => [
             {
               id: 'log-' + Date.now(),
@@ -327,7 +455,7 @@ export default function App() {
         }
       }
     },
-    [myPin, isDnd, voiceFilter]
+    [myPin, voiceFilter, showSpeakerNotification]
   );
 
   // Subscribe to BroadcastChannel & WebRTC
@@ -335,13 +463,43 @@ export default function App() {
     const unsubBroadcast = walkieBroadcast.subscribe(handleIncomingMessage);
     const unsubP2P = walkieP2P.onMessage(handleIncomingMessage);
 
+    // Live WebRTC Audio Stream listener (direct real-time speaking)
+    const unsubCall = walkieP2P.onIncomingCall((callerPin, remoteStream) => {
+      if (blockedPinsRef.current.includes(callerPin)) return;
+      if ((mutedUntilRef.current[callerPin] || 0) > Date.now()) return;
+      if (isDndRef.current) return;
+
+      const callerObj = friendsRef.current.find((f) => f.pin === callerPin);
+      const callerName = callerObj ? callerObj.name : `Friend #${callerPin}`;
+
+      setIsReceiving(true);
+      setIncomingSender(callerName);
+      setIncomingSenderPin(callerPin);
+
+      // Play real-time live incoming audio
+      audioEngine.playLiveStream(remoteStream);
+      showSpeakerNotification(callerName, callerPin);
+
+      // When remote audio track ceases
+      const audioTrack = remoteStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.onended = () => {
+          audioEngine.stopLiveStream();
+          setIsReceiving(false);
+          setIncomingSender(null);
+          setIncomingSenderPin(null);
+        };
+      }
+    });
+
     return () => {
       unsubBroadcast();
       unsubP2P();
+      unsubCall();
     };
-  }, [handleIncomingMessage]);
+  }, [handleIncomingMessage, showSpeakerNotification]);
 
-  // PTT Start (Records real mic voice)
+  // PTT Start (Records real mic voice & streams live to friend)
   const handlePttStart = useCallback(async () => {
     if (isTransmitting || isReceiving) return;
 
@@ -364,6 +522,10 @@ export default function App() {
     walkieBroadcast.send(pttStartMsg);
     if (activeFriend) {
       walkieP2P.sendToFriend(activeFriend.pin, pttStartMsg);
+      // LIVE AUDIO: stream real-time voice while holding PTT
+      if (stream) {
+        walkieP2P.callFriend(activeFriend.pin, stream);
+      }
     }
 
     // Start recording real microphone audio
@@ -445,6 +607,9 @@ export default function App() {
   // PTT Stop (Sends real recorded audio over WebRTC & BroadcastChannel)
   const handlePttStop = useCallback(() => {
     if (!isTransmitting && !isLockedOnAir) return;
+
+    // End active live WebRTC call
+    walkieP2P.endCurrentCall();
 
     audioEngine.playRogerBeep();
     setIsTransmitting(false);
@@ -765,6 +930,10 @@ export default function App() {
           onOpenProfileEdit={() => setIsProfileEditOpen(true)}
           activeTheme={activeTheme}
           onOpenQrCode={handleOpenQrCode}
+          blockedPins={blockedPins}
+          onBlockFriend={handleBlockPin}
+          onUnblockFriend={handleUnblockPin}
+          onMuteCurrentSender={handleMuteCurrentSender}
         />
       </main>
 
@@ -786,6 +955,10 @@ export default function App() {
         onOpenLockScreenGuide={() => setIsLockScreenGuideOpen(true)}
         onClearData={handleClearData}
         onShareApp={handleShareApp}
+        blockedPins={blockedPins}
+        friends={friends}
+        onBlockPin={handleBlockPin}
+        onUnblockPin={handleUnblockPin}
       />
 
       {/* Profile Edit Modal */}
@@ -816,6 +989,8 @@ export default function App() {
         onSelectFriend={setActiveFriend}
         activeFriendId={activeFriend?.id}
         onOpenQrCode={handleOpenQrCode}
+        blockedPins={blockedPins}
+        onToggleBlockPin={handleToggleBlockPin}
       />
 
       {/* QR Code Modal */}

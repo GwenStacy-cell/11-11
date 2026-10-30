@@ -88,7 +88,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             <ul className="list-disc list-inside space-y-1 text-zinc-300 text-[11px]">
               <li><strong>Hold PTT Button</strong>: Uses Web Audio & mic (or simulated radio banter) with authentic squelch/roger beeps.</li>
               <li><strong>Multi-Tab Walkie</strong>: Open this app in two browser tabs side-by-side to talk between them via <code>BroadcastChannel</code>!</li>
-              <li><strong>Lock Screen Simulator</strong>: Click "Lock Screen" to test what the viral audio override looks and sounds like.</li>
+              <li><strong>Lock Screen PWA</strong>: Install to your phone's home screen for live audio over speakerphone.</li>
               <li><strong>Pokes & Soundboard</strong>: Send instant nudges and radio drops to your friend circle.</li>
             </ul>
           </div>

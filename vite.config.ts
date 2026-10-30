@@ -1,36 +1,12 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import fs from 'fs';
-import { defineConfig, Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
-
-const archiveServerPlugin = (): Plugin => ({
-  name: 'archive-server-plugin',
-  configureServer(server) {
-    server.middlewares.use((req, res, next) => {
-      if (req.url && (req.url.endsWith('.zip') || req.url.endsWith('.tar.gz'))) {
-        const cleanPath = req.url.split('?')[0];
-        const filePath = path.join(import.meta.dirname, 'public', cleanPath);
-        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-          const mimeType = req.url.endsWith('.zip') ? 'application/zip' : 'application/gzip';
-          const filename = path.basename(filePath);
-          res.setHeader('Content-Type', mimeType);
-          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-          res.setHeader('Content-Length', fs.statSync(filePath).size);
-          fs.createReadStream(filePath).pipe(res);
-          return;
-        }
-      }
-      next();
-    });
-  },
-});
 
 export default defineConfig(() => {
   return {
     plugins: [
-      archiveServerPlugin(),
       react(),
       tailwindcss(),
       VitePWA({

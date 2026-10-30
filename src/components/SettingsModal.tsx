@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   X,
   Settings as SettingsIcon,
@@ -12,10 +12,11 @@ import {
   Smartphone,
   Mic,
   ShieldAlert,
-  Sparkles,
-  Palette
+  Palette,
+  Ban,
+  UserCheck
 } from 'lucide-react';
-import { UserProfile, VoiceFilter, AppTheme, ThemeId } from '../types';
+import { UserProfile, VoiceFilter, AppTheme, ThemeId, Friend } from '../types';
 import { THEMES } from '../data/themes';
 import { audioEngine } from '../utils/audioEffects';
 
@@ -36,6 +37,10 @@ interface SettingsModalProps {
   onOpenLockScreenGuide: () => void;
   onClearData: () => void;
   onShareApp: () => void;
+  blockedPins: string[];
+  friends: Friend[];
+  onBlockPin: (pin: string) => void;
+  onUnblockPin: (pin: string) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -55,9 +60,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenLockScreenGuide,
   onClearData,
   onShareApp,
+  blockedPins = [],
+  friends = [],
+  onBlockPin,
+  onUnblockPin,
 }) => {
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const bannerInputRef = useRef<HTMLInputElement | null>(null);
+  const [manualBlockPin, setManualBlockPin] = useState('');
 
   if (!isOpen) return null;
 
@@ -91,6 +101,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleManualBlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    const pin = manualBlockPin.trim();
+    if (pin && pin !== myPin) {
+      onBlockPin(pin);
+      setManualBlockPin('');
+      audioEngine.playPokeSound();
+    }
   };
 
   const filters: { id: VoiceFilter; label: string; desc: string }[] = [
@@ -294,7 +314,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 5: Mobile & Lock Screen */}
+          {/* Section 5: Block & Unblock Users */}
+          <div className="p-4 bg-zinc-950/70 border border-zinc-800 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                <Ban className="w-4 h-4 text-rose-400" />
+                <span>Blocked Users ({blockedPins.length})</span>
+              </div>
+              <span className="text-[10px] text-zinc-500">Mutes transmissions & pokes</span>
+            </div>
+
+            {/* List of blocked users */}
+            {blockedPins.length === 0 ? (
+              <div className="p-3 bg-zinc-900/40 rounded-xl text-center text-[11px] text-zinc-500 border border-dashed border-zinc-800">
+                No users are currently blocked.
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                {blockedPins.map((pin) => {
+                  const friend = friends.find((f) => f.pin === pin);
+                  return (
+                    <div
+                      key={pin}
+                      className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-rose-500" />
+                        <span className="text-xs font-semibold text-white">
+                          {friend ? friend.name : `PIN #${pin}`}
+                        </span>
+                        <span className="text-[10px] font-mono text-zinc-400">#{pin}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUnblockPin(pin);
+                          audioEngine.playPokeSound();
+                        }}
+                        className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-emerald-400 text-[10px] font-bold rounded-lg border border-zinc-700 flex items-center gap-1 transition-colors"
+                      >
+                        <UserCheck className="w-3 h-3" />
+                        <span>Unblock</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Manual block input */}
+            <form onSubmit={handleManualBlock} className="flex gap-2 pt-1">
+              <input
+                type="text"
+                placeholder="Block PIN (e.g. 7419)"
+                maxLength={6}
+                value={manualBlockPin}
+                onChange={(e) => setManualBlockPin(e.target.value)}
+                className="flex-1 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500 font-mono"
+              />
+              <button
+                type="submit"
+                disabled={!manualBlockPin.trim()}
+                className="px-3 py-1.5 bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-40"
+              >
+                Block
+              </button>
+            </form>
+          </div>
+
+          {/* Section 6: Mobile & Lock Screen */}
           <div className="p-4 bg-zinc-950/70 border border-zinc-800 rounded-2xl space-y-2.5">
             <div className="text-xs font-bold text-white flex items-center gap-1.5">
               <Smartphone className="w-4 h-4 text-purple-400" />
@@ -331,7 +419,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
-          {/* Section 6: Reset / Clear */}
+          {/* Section 7: Reset / Clear */}
           <div className="p-4 bg-zinc-950/70 border border-rose-500/30 rounded-2xl flex items-center justify-between">
             <div>
               <div className="text-xs font-bold text-rose-400 flex items-center gap-1.5">

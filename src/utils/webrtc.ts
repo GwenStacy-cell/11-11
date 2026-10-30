@@ -1,13 +1,16 @@
-import { Peer, DataConnection } from 'peerjs';
+import { Peer, DataConnection, MediaConnection } from 'peerjs';
 import { BroadcastMessage } from '../types';
 
 type MessageHandler = (msg: BroadcastMessage) => void;
+type CallHandler = (senderPin: string, stream: MediaStream) => void;
 
 class WalkieP2P {
   private peer: Peer | null = null;
   private myPin: string = '';
   private activeConnections: Map<string, DataConnection> = new Map();
+  private activeMediaCall: MediaConnection | null = null;
   private messageListeners: Set<MessageHandler> = new Set();
+  private callListeners: Set<CallHandler> = new Set();
   public isConnected: boolean = false;
 
   init(myPin: string) {
@@ -25,8 +28,30 @@ class WalkieP2P {
         console.log('11:11 Walkie P2P network ready. Peer ID:', id);
       });
 
+      // Data connection listener
       this.peer.on('connection', (conn) => {
         this.setupConnection(conn);
+      });
+
+      // Incoming live audio stream call listener
+      this.peer.on('call', (call) => {
+        const callerPin = call.peer.replace('tenten-walkie-', '');
+        this.activeMediaCall = call;
+
+        // Answer call to receive remote audio stream
+        call.answer();
+
+        call.on('stream', (remoteStream) => {
+          this.callListeners.forEach((fn) => fn(callerPin, remoteStream));
+        });
+
+        call.on('close', () => {
+          this.activeMediaCall = null;
+        });
+
+        call.on('error', () => {
+          this.activeMediaCall = null;
+        });
       });
 
       this.peer.on('error', (err) => {
@@ -60,6 +85,33 @@ class WalkieP2P {
     });
   }
 
+  // Start live voice call while holding PTT
+  callFriend(targetPin: string, localStream: MediaStream): MediaConnection | null {
+    if (!this.peer) return null;
+    const targetPeerId = `tenten-walkie-${targetPin}`;
+
+    try {
+      const call = this.peer.call(targetPeerId, localStream);
+      this.activeMediaCall = call;
+      return call;
+    } catch (err) {
+      console.warn('Could not initiate live call to friend:', err);
+      return null;
+    }
+  }
+
+  // End live voice call on PTT release
+  endCurrentCall() {
+    if (this.activeMediaCall) {
+      try {
+        this.activeMediaCall.close();
+      } catch {
+        // ignore
+      }
+      this.activeMediaCall = null;
+    }
+  }
+
   sendToFriend(targetPin: string, msg: BroadcastMessage) {
     if (!this.peer) return;
     const targetPeerId = `tenten-walkie-${targetPin}`;
@@ -68,7 +120,6 @@ class WalkieP2P {
     if (conn && conn.open) {
       conn.send(JSON.stringify(msg));
     } else {
-      // Connect to friend's walkie peer
       try {
         const newConn = this.peer.connect(targetPeerId);
         this.setupConnection(newConn);
@@ -85,6 +136,13 @@ class WalkieP2P {
     this.messageListeners.add(listener);
     return () => {
       this.messageListeners.delete(listener);
+    };
+  }
+
+  onIncomingCall(listener: CallHandler) {
+    this.callListeners.add(listener);
+    return () => {
+      this.callListeners.delete(listener);
     };
   }
 }

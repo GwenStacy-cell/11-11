@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, UserPlus, Hash, Shield, QrCode, Scan, Trash2, Users } from 'lucide-react';
+import { X, Copy, Check, UserPlus, Hash, Shield, QrCode, Scan, Trash2, Users, Ban } from 'lucide-react';
 import { Friend } from '../types';
 import { audioEngine } from '../utils/audioEffects';
 
@@ -13,6 +13,8 @@ interface FriendManagerModalProps {
   onSelectFriend: (friend: Friend) => void;
   activeFriendId?: string;
   onOpenQrCode?: (targetFriend?: { name: string; pin: string }) => void;
+  blockedPins?: string[];
+  onToggleBlockPin?: (pin: string) => void;
 }
 
 export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
@@ -25,6 +27,8 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
   onSelectFriend,
   activeFriendId,
   onOpenQrCode,
+  blockedPins = [],
+  onToggleBlockPin,
 }) => {
   const [copied, setCopied] = useState(false);
   const [friendName, setFriendName] = useState('');
@@ -258,6 +262,11 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-300 shrink-0">
                             #{f.pin}
                           </span>
+                          {blockedPins.includes(f.pin) && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                              Blocked
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-zinc-400 truncate max-w-[140px]">
                           {f.statusText}
@@ -299,6 +308,25 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                           </span>
                         )}
                       </button>
+
+                      {onToggleBlockPin && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleBlockPin(f.pin);
+                            audioEngine.playPokeSound();
+                          }}
+                          className={`p-1.5 rounded-lg border transition-colors ${
+                            blockedPins.includes(f.pin)
+                              ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                              : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-500 hover:text-rose-400 border-zinc-800'
+                          }`}
+                          title={blockedPins.includes(f.pin) ? `Unblock ${f.name}` : `Block ${f.name}`}
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
                       {onDeleteFriend && (
                         <button
