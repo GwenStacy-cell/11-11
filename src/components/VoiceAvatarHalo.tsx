@@ -3,7 +3,7 @@ import { Mic, Volume2 } from 'lucide-react';
 import { Friend, AppTheme } from '../types';
 
 interface VoiceAvatarHaloProps {
-  friend: Friend;
+  friend?: Friend | null;
   isTransmitting: boolean;
   isReceiving: boolean;
   isLockedOnAir: boolean;

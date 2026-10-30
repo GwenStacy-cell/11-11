@@ -9,7 +9,7 @@ interface LockScreenModalProps {
   isOpen: boolean;
   onClose: () => void;
   friends: Friend[];
-  activeFriend: Friend;
+  activeFriend?: Friend | null;
   incomingTransmission: {
     senderName: string;
     text: string;
@@ -115,9 +115,14 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
               <button
                 onClick={() => {
                   const friend = activeFriend || friends[0];
-                  const quotes = FUN_VOICE_RESPONSES[friend.name] || ["Hey, pick up your phone!"];
+                  const friendName = friend ? friend.name : 'Channel 11:11';
+                  const quotes = (friend && FUN_VOICE_RESPONSES[friend.name]) || [
+                    "Yo! Reading you loud and clear on 11:11!",
+                    "Hey, pick up your phone! Over!",
+                    "10-4, transmission received!"
+                  ];
                   const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
-                  onTriggerIncoming(friend.name, randomQuote);
+                  onTriggerIncoming(friendName, randomQuote);
                 }}
                 className="mt-3 w-full py-2.5 px-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md shadow-rose-900/30"
               >

@@ -6,7 +6,7 @@ interface SoundboardModalProps {
   isOpen: boolean;
   onClose: () => void;
   onBroadcastSound: (name: string, soundType: 'siren' | 'roger' | 'alert' | 'wakeup') => void;
-  activeFriendName: string;
+  activeFriendName?: string;
 }
 
 export const SoundboardModal: React.FC<SoundboardModalProps> = ({
@@ -63,7 +63,7 @@ export const SoundboardModal: React.FC<SoundboardModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Walkie Soundboard</h2>
-              <p className="text-xs text-zinc-400">Blast instant audio drops to {activeFriendName}</p>
+              <p className="text-xs text-zinc-400">Blast instant audio drops to {activeFriendName || 'Channel 11:11'}</p>
             </div>
           </div>
 

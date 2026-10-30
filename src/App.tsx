@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Friend, VoiceFilter, TransmissionLog, BroadcastMessage, UserProfile } from './types';
-import { INITIAL_FRIENDS, FUN_VOICE_RESPONSES } from './data/mockData';
+import { INITIAL_FRIENDS, DEFAULT_VOICE_RESPONSES, FUN_VOICE_RESPONSES } from './data/mockData';
 import { audioEngine } from './utils/audioEffects';
 import { walkieBroadcast } from './utils/broadcast';
 import { WalkieTalkieMain } from './components/WalkieTalkieMain';
@@ -18,7 +18,6 @@ import { ProfileEditModal } from './components/ProfileEditModal';
 import { QRCodeModal } from './components/QRCodeModal';
 import { InstallAppModal } from './components/InstallAppModal';
 import { THEMES, ThemeId } from './data/themes';
-import { Radio, Lock, Hand, Volume2, Sparkles, User, Sliders, Palette, QrCode, Scan, Download } from 'lucide-react';
 
 export default function App() {
   // Generate or retrieve persistent PIN
@@ -72,19 +71,40 @@ export default function App() {
   // Incoming Audio Gain (Web Audio API)
   const [volume, setVolume] = useState<number>(() => audioEngine.getIncomingVolume());
 
+  // Friends List (Completely empty by default; cleans out any legacy mock friends)
   const [friends, setFriends] = useState<Friend[]>(() => {
     const saved = localStorage.getItem('tenten_friends');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // Remove default mock friends if previously stored
+          const filtered = parsed.filter(
+            (f: Friend) =>
+              !['f-maya', 'f-leo', 'f-chloe', 'f-alex'].includes(f.id) &&
+              !['Maya', 'Leo', 'Chloe', 'Alex'].includes(f.name)
+          );
+          return filtered;
+        }
       } catch {
-        return INITIAL_FRIENDS;
+        return [];
       }
     }
     return INITIAL_FRIENDS;
   });
 
-  const [activeFriend, setActiveFriend] = useState<Friend>(friends[0]);
+  // Active Selected Friend (null if no friends added)
+  const [activeFriend, setActiveFriend] = useState<Friend | null>(() => friends[0] || null);
+
+  // Keep activeFriend synchronized with friends list
+  useEffect(() => {
+    if (activeFriend && !friends.some((f) => f.id === activeFriend.id)) {
+      setActiveFriend(friends[0] || null);
+    } else if (!activeFriend && friends.length > 0) {
+      setActiveFriend(friends[0]);
+    }
+  }, [friends, activeFriend]);
+
   const [isTransmitting, setIsTransmitting] = useState(false);
   const [isLockedOnAir, setIsLockedOnAir] = useState(false);
   const [isReceiving, setIsReceiving] = useState(false);
@@ -113,27 +133,7 @@ export default function App() {
   };
 
   // Transmission logs
-  const [logs, setLogs] = useState<TransmissionLog[]>([
-    {
-      id: 'init-1',
-      senderName: 'Maya',
-      senderPin: '8492',
-      isSelf: false,
-      timestamp: new Date(Date.now() - 1000 * 60 * 4),
-      durationSec: 3,
-      transcript: "Don't scream on 11:11, teacher is right here!",
-      type: 'voice',
-    },
-    {
-      id: 'init-2',
-      senderName: 'Leo',
-      senderPin: '5021',
-      isSelf: false,
-      timestamp: new Date(Date.now() - 1000 * 60 * 12),
-      durationSec: 1,
-      type: 'poke',
-    },
-  ]);
+  const [logs, setLogs] = useState<TransmissionLog[]>([]);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -247,6 +247,7 @@ export default function App() {
       type: 'ptt-start',
       senderPin: myPin,
       senderName: userProfile.name,
+      targetPin: activeFriend ? activeFriend.pin : undefined,
       timestamp: Date.now(),
     });
 
@@ -260,7 +261,53 @@ export default function App() {
     if (!hasMicPermission && navigator.mediaDevices) {
       requestMicAccess();
     }
-  }, [isTransmitting, isReceiving, myPin, userProfile.name, hasMicPermission, requestMicAccess]);
+  }, [isTransmitting, isReceiving, myPin, userProfile.name, activeFriend, hasMicPermission, requestMicAccess]);
+
+  // Trigger friend speech banter
+  const triggerFriendBanter = useCallback(
+    (friendName?: string, customQuote?: string) => {
+      if (isDnd) return;
+
+      const targetName = friendName || (activeFriend ? activeFriend.name : 'Channel 11:11');
+      const quotes =
+        (FUN_VOICE_RESPONSES && FUN_VOICE_RESPONSES[targetName]) || DEFAULT_VOICE_RESPONSES;
+      const textToSpeak = customQuote || quotes[Math.floor(Math.random() * quotes.length)];
+      const friendObj = friends.find((f) => f.name === targetName) || activeFriend;
+
+      setIsReceiving(true);
+      setIncomingSender(targetName);
+      setIncomingText(textToSpeak);
+
+      audioEngine.speakRadioVoice(
+        textToSpeak,
+        friendObj?.genderVoice || 'female',
+        () => {
+          // Voice started
+        },
+        () => {
+          // Voice ended
+          setIsReceiving(false);
+          setIncomingSender(null);
+          setIncomingText(null);
+
+          setLogs((prev) => [
+            {
+              id: 'log-' + Date.now(),
+              senderName: targetName,
+              senderPin: friendObj ? friendObj.pin : '1111',
+              isSelf: false,
+              timestamp: new Date(),
+              durationSec: 3,
+              transcript: textToSpeak,
+              type: 'voice',
+            },
+            ...prev,
+          ]);
+        }
+      );
+    },
+    [isDnd, activeFriend, friends]
+  );
 
   // PTT Stop
   const handlePttStop = useCallback(() => {
@@ -276,12 +323,14 @@ export default function App() {
     }
 
     const duration = Math.max(1, transmissionDuration);
+    const targetLabel = activeFriend ? activeFriend.name : 'Channel 11:11';
 
     // Broadcast PTT Stop
     walkieBroadcast.send({
       type: 'ptt-stop',
       senderPin: myPin,
       senderName: userProfile.name,
+      targetPin: activeFriend ? activeFriend.pin : undefined,
       timestamp: Date.now(),
     });
 
@@ -294,20 +343,31 @@ export default function App() {
         isSelf: true,
         timestamp: new Date(),
         durationSec: duration,
-        transcript: `Live transmission to ${activeFriend.name}`,
+        transcript: `Transmission to ${targetLabel}`,
         type: 'voice',
       },
       ...prev,
     ]);
 
-    // Random simulated friend reply (simulating the fun walkie talkie interaction)
-    const shouldReply = Math.random() > 0.45;
-    if (shouldReply && !isDnd) {
-      setTimeout(() => {
-        triggerFriendBanter(activeFriend.name);
-      }, 1400);
+    // Simulated banter reply if friend is active
+    if (activeFriend && !isDnd) {
+      const shouldReply = Math.random() > 0.45;
+      if (shouldReply) {
+        setTimeout(() => {
+          triggerFriendBanter(activeFriend.name);
+        }, 1400);
+      }
     }
-  }, [isTransmitting, isLockedOnAir, transmissionDuration, myPin, userProfile.name, activeFriend, isDnd]);
+  }, [
+    isTransmitting,
+    isLockedOnAir,
+    transmissionDuration,
+    myPin,
+    userProfile.name,
+    activeFriend,
+    isDnd,
+    triggerFriendBanter,
+  ]);
 
   // Toggle Hands-Free Locked Mode
   const handleToggleLockOnAir = () => {
@@ -319,60 +379,19 @@ export default function App() {
     }
   };
 
-  // Trigger friend speech banter
-  const triggerFriendBanter = (friendName: string, customQuote?: string) => {
-    if (isDnd) return;
-
-    const quotes = FUN_VOICE_RESPONSES[friendName] || [
-      'Yo! Reading you loud and clear on 11:11!',
-      'Are you there? Over and out!',
-    ];
-    const textToSpeak = customQuote || quotes[Math.floor(Math.random() * quotes.length)];
-    const friendObj = friends.find((f) => f.name === friendName) || activeFriend;
-
-    setIsReceiving(true);
-    setIncomingSender(friendName);
-    setIncomingText(textToSpeak);
-
-    audioEngine.speakRadioVoice(
-      textToSpeak,
-      friendObj.genderVoice || 'female',
-      () => {
-        // Voice started
-      },
-      () => {
-        // Voice ended
-        setIsReceiving(false);
-        setIncomingSender(null);
-        setIncomingText(null);
-
-        // Record in log
-        setLogs((prev) => [
-          {
-            id: 'log-' + Date.now(),
-            senderName: friendName,
-            senderPin: friendObj.pin,
-            isSelf: false,
-            timestamp: new Date(),
-            durationSec: 3,
-            transcript: textToSpeak,
-            type: 'voice',
-          },
-          ...prev,
-        ]);
-      }
-    );
-  };
-
   // Send Poke
   const handleSendPoke = () => {
     audioEngine.playPokeSound();
     triggerScreenShake();
 
+    const targetLabel = activeFriend ? activeFriend.name : 'Channel 11:11';
+    const targetPin = activeFriend ? activeFriend.pin : '1111';
+
     walkieBroadcast.send({
       type: 'poke',
       senderPin: myPin,
       senderName: userProfile.name,
+      targetPin: targetPin,
       timestamp: Date.now(),
     });
 
@@ -384,15 +403,15 @@ export default function App() {
         isSelf: true,
         timestamp: new Date(),
         durationSec: 1,
-        transcript: `Poked ${activeFriend.name}`,
+        transcript: `Poked ${targetLabel}`,
         type: 'poke',
       },
       ...prev,
     ]);
 
-    // Friend pokes back after brief delay
-    setTimeout(() => {
-      if (!isDnd) {
+    // Friend pokes back if active friend is selected
+    if (activeFriend && !isDnd) {
+      setTimeout(() => {
         audioEngine.playPokeSound();
         triggerScreenShake();
         setLogs((prev) => [
@@ -408,12 +427,12 @@ export default function App() {
           },
           ...prev,
         ]);
-      }
-    }, 1200);
+      }, 1200);
+    }
   };
 
   // Soundboard broadcast
-  const handleBroadcastSound = (name: string, soundType: 'siren' | 'roger' | 'alert' | 'wakeup') => {
+  const handleBroadcastSound = (name: string, _soundType: 'siren' | 'roger' | 'alert' | 'wakeup') => {
     walkieBroadcast.send({
       type: 'soundboard',
       senderPin: myPin,
@@ -445,7 +464,7 @@ export default function App() {
       id: 'f-' + Date.now(),
       name,
       pin,
-      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${name}`,
+      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
       statusText: 'Connected on 11:11 via PIN #' + pin,
       onlineStatus: 'online',
       lastActive: 'Just now',
@@ -454,6 +473,19 @@ export default function App() {
     };
     setFriends((prev) => [newFriend, ...prev]);
     setActiveFriend(newFriend);
+  };
+
+  // Delete friend
+  const handleDeleteFriend = (id: string) => {
+    setFriends((prev) => {
+      const updated = prev.filter((f) => f.id !== id);
+      localStorage.setItem('tenten_friends', JSON.stringify(updated));
+      return updated;
+    });
+    if (activeFriend?.id === id) {
+      setActiveFriend(null);
+    }
+    audioEngine.playPokeSound();
   };
 
   // Spacebar hotkey for PTT
@@ -485,23 +517,17 @@ export default function App() {
     };
   }, [isTransmitting, isLockedOnAir, handlePttStart, handlePttStop]);
 
-  // Whole-Screen Blurred Avatar Source & Blur Controls (Revealing & Clear)
-  const [avatarGlowSource, setAvatarGlowSource] = useState<'friend' | 'user'>('friend');
-  const [bgBlurAmount, setBgBlurAmount] = useState<number>(4); // 4px: highly clear and revealing, facial features recognizable!
-  const [bgOpacity, setBgOpacity] = useState<number>(90); // 90% opacity: vivid and revealing!
-
-  const currentBlurredAvatar = avatarGlowSource === 'user' ? userProfile.avatar : activeFriend.avatar;
-  const currentBlurredName = avatarGlowSource === 'user' ? userProfile.name : activeFriend.name;
-
+  const currentBlurredAvatar = activeFriend ? activeFriend.avatar : userProfile.avatar;
+  const currentBlurredName = activeFriend ? activeFriend.name : userProfile.name;
   const isAirActive = isTransmitting || isReceiving || isLockedOnAir;
 
   return (
     <div
-      className={`min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-3 sm:p-6 transition-transform relative overflow-hidden ${
+      className={`w-full h-[100dvh] min-h-[100dvh] bg-zinc-950 text-zinc-100 flex flex-col justify-between transition-transform relative overflow-hidden select-none ${
         screenShake ? 'animate-shake' : ''
       }`}
     >
-      {/* Full-Screen Ambient Avatar Backdrop (Visible ONLY while pushing to talk / receiving, highly clear & revealing!) */}
+      {/* Full-Screen Ambient Avatar Backdrop */}
       <div
         className={`fixed inset-0 overflow-hidden pointer-events-none z-0 transition-opacity duration-500 ease-out ${
           isAirActive ? 'opacity-100' : 'opacity-0'
@@ -514,315 +540,54 @@ export default function App() {
           referrerPolicy="no-referrer"
           className="w-full h-full object-cover transition-transform duration-700 ease-out"
           style={{
-            filter: `blur(${bgBlurAmount}px)`,
-            opacity: bgOpacity / 100,
+            filter: 'blur(5px)',
+            opacity: 0.85,
             transform: isAirActive ? 'scale(1.08)' : 'scale(1.0)',
           }}
         />
-        {/* Soft edge vignette ensuring text readability without hiding the avatar */}
-        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-zinc-950/60" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_45%,_rgba(9,9,11,0.55)_100%)]" />
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/85 via-zinc-950/30 to-zinc-950/70" />
       </div>
 
-      {/* Main Container: Desktop Side-by-Side or Centered Mobile Frame */}
-      <div className="relative z-10 w-full max-w-5xl flex flex-col lg:flex-row items-center justify-center gap-8 py-4">
-        
-        {/* Left Column: The 11:11 Handheld Phone Simulator */}
-        <div className="w-full max-w-md h-[780px] max-h-[92vh] bg-zinc-950 rounded-[44px] border-[6px] border-zinc-800 shadow-2xl shadow-black overflow-hidden flex flex-col relative ring-1 ring-white/10">
-          
-          {/* Hardware Dynamic Island */}
-          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-24 h-5 bg-black rounded-full z-20 flex items-center justify-center">
-            <div className="w-2 h-2 rounded-full bg-zinc-800 mr-2" />
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-900/40" />
-          </div>
-
-          <WalkieTalkieMain
-            activeFriend={activeFriend}
-            friends={friends}
-            onSelectFriend={setActiveFriend}
-            isTransmitting={isTransmitting}
-            isLockedOnAir={isLockedOnAir}
-            isReceiving={isReceiving}
-            incomingSender={incomingSender}
-            onPttStart={handlePttStart}
-            onPttStop={handlePttStop}
-            onToggleLockOnAir={handleToggleLockOnAir}
-            onSendPoke={handleSendPoke}
-            onTriggerFriendReply={() => triggerFriendBanter(activeFriend.name)}
-            onOpenSoundboard={() => setIsSoundboardOpen(true)}
-            onOpenFriendManager={() => setIsFriendManagerOpen(true)}
-            onOpenAbout={() => setIsAboutOpen(true)}
-            onOpenHistory={() => setIsHistoryOpen(true)}
-            onOpenLockScreen={() => setIsLockScreenOpen(true)}
-            isDnd={isDnd}
-            onToggleDnd={() => {
-              setIsDnd(!isDnd);
-              audioEngine.playPokeSound();
-            }}
-            voiceFilter={voiceFilter}
-            onChangeVoiceFilter={setVoiceFilter}
-            myPin={myPin}
-            hasMicPermission={hasMicPermission}
-            onRequestMic={requestMicAccess}
-            transmissionDuration={transmissionDuration}
-            volume={volume}
-            onChangeVolume={handleVolumeChange}
-            userProfile={userProfile}
-            onOpenProfileEdit={() => setIsProfileEditOpen(true)}
-            activeTheme={activeTheme}
-            onOpenQrCode={handleOpenQrCode}
-            onOpenInstallModal={() => setIsInstallModalOpen(true)}
-          />
-        </div>
-
-        {/* Right Column: Desktop Helper & Quick Testing Panel */}
-        <div className="hidden lg:flex flex-col gap-3.5 w-80 text-zinc-300">
-          
-          {/* Header Card */}
-          <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-3xl backdrop-blur-md">
-            <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500 flex items-center justify-center font-black text-xs text-black">
-                11:11
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-white">11:11 Live Walkie</h3>
-                <p className="text-[11px] text-zinc-400">Push-to-talk social audio</p>
-              </div>
-            </div>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Use the custom vertical volume slider to adjust the incoming audio gain in real-time via the Web Audio API.
-            </p>
-          </div>
-
-          {/* Quick Actions Panel */}
-          <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-3xl space-y-2.5">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-              Interactive Test Tools
-            </div>
-
-            <button
-              onClick={() => setIsInstallModalOpen(true)}
-              className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/50 rounded-2xl flex items-center gap-2.5 text-xs font-bold text-amber-300 transition-all text-left group shadow-sm"
-            >
-              <div className="w-7 h-7 rounded-xl bg-amber-500 text-black flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
-                <Download className="w-4 h-4 text-black" />
-              </div>
-              <div>
-                <div className="text-amber-300 font-extrabold">Download & Install App</div>
-                <div className="text-[10px] text-amber-400/80">Install PWA on iOS / Android / Desktop</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setIsProfileEditOpen(true)}
-              className="w-full py-2.5 px-3 bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/60 hover:border-amber-500/50 rounded-2xl flex items-center gap-2.5 text-xs font-semibold text-white transition-all text-left group"
-            >
-              <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <User className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-white">Customize Profile</div>
-                <div className="text-[10px] text-zinc-400">Set avatar, banner & status</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => handleOpenQrCode()}
-              className="w-full py-2.5 px-3 bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/60 hover:border-amber-500/50 rounded-2xl flex items-center gap-2.5 text-xs font-semibold text-white transition-all text-left group"
-            >
-              <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <QrCode className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-white">Friend QR Code & Scanner</div>
-                <div className="text-[10px] text-zinc-400">Share or scan friend PINs instantly</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setIsLockScreenOpen(true)}
-              className="w-full py-2.5 px-3 bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/60 hover:border-rose-500/50 rounded-2xl flex items-center gap-2.5 text-xs font-semibold text-white transition-all text-left group"
-            >
-              <div className="w-7 h-7 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Lock className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-white">11:11 Lock Screen</div>
-                <div className="text-[10px] text-zinc-400">Test voice jump-scare override</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => triggerFriendBanter(activeFriend.name)}
-              className="w-full py-2.5 px-3 bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/60 hover:border-emerald-500/50 rounded-2xl flex items-center gap-2.5 text-xs font-semibold text-white transition-all text-left group"
-            >
-              <div className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Radio className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-white">Trigger Friend Voice</div>
-                <div className="text-[10px] text-zinc-400">Hear {activeFriend.name} reply on 11:11</div>
-              </div>
-            </button>
-
-            <button
-              onClick={handleSendPoke}
-              className="w-full py-2.5 px-3 bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/60 hover:border-amber-500/50 rounded-2xl flex items-center gap-2.5 text-xs font-semibold text-white transition-all text-left group"
-            >
-              <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Hand className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-white">Send Poke Nudge</div>
-                <div className="text-[10px] text-zinc-400">Screen shake & pop alert</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setIsSoundboardOpen(true)}
-              className="w-full py-2.5 px-3 bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/60 hover:border-blue-500/50 rounded-2xl flex items-center gap-2.5 text-xs font-semibold text-white transition-all text-left group"
-            >
-              <div className="w-7 h-7 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Volume2 className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-white">Blast Soundboard</div>
-                <div className="text-[10px] text-zinc-400">Sirens, roger beeps, alerts</div>
-              </div>
-            </button>
-          </div>
-
-          {/* Ambient Avatar Screen Blur Status & Controls */}
-          <div className="p-3.5 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl flex flex-col gap-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="relative">
-                  <img
-                    src={currentBlurredAvatar}
-                    alt={currentBlurredName}
-                    referrerPolicy="no-referrer"
-                    className="w-9 h-9 rounded-full object-cover border border-zinc-700 shadow-md"
-                  />
-                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-zinc-900 animate-pulse" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span>Full-Screen Avatar Blur</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-400">
-                    Glowing: <strong className="text-zinc-200">{currentBlurredName}</strong>
-                  </div>
-                </div>
-              </div>
-              <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-zinc-800/90 text-emerald-400 border border-emerald-500/30">
-                ACTIVE
-              </span>
-            </div>
-
-            {/* Switch between Friend or User avatar */}
-            <div className="grid grid-cols-2 gap-1.5 p-1 bg-zinc-950/80 rounded-xl border border-zinc-800 text-[10px]">
-              <button
-                onClick={() => {
-                  setAvatarGlowSource('friend');
-                  audioEngine.playPokeSound();
-                }}
-                className={`py-1 px-2 rounded-lg font-semibold transition-all ${
-                  avatarGlowSource === 'friend'
-                    ? 'bg-zinc-800 text-white shadow'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                Friend ({activeFriend.name})
-              </button>
-              <button
-                onClick={() => {
-                  setAvatarGlowSource('user');
-                  audioEngine.playPokeSound();
-                }}
-                className={`py-1 px-2 rounded-lg font-semibold transition-all ${
-                  avatarGlowSource === 'user'
-                    ? 'bg-zinc-800 text-white shadow'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                My Avatar ({userProfile.name})
-              </button>
-            </div>
-
-            {/* Quick Blur Intensity Selector */}
-            <div className="flex items-center justify-between pt-1 border-t border-zinc-800 text-[10px]">
-              <span className="text-zinc-400 font-medium">Blur Amount:</span>
-              <div className="flex items-center gap-1">
-                {[
-                  { label: 'Crystal (2px)', val: 2 },
-                  { label: 'Revealing (4px)', val: 4 },
-                  { label: 'Soft (8px)', val: 8 },
-                ].map((preset) => (
-                  <button
-                    key={preset.val}
-                    onClick={() => {
-                      setBgBlurAmount(preset.val);
-                      audioEngine.playPokeSound();
-                    }}
-                    className={`px-1.5 py-0.5 rounded transition-colors ${
-                      bgBlurAmount === preset.val
-                        ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40'
-                        : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Aesthetic Palette Status Card */}
-          <div
-            onClick={() => setIsProfileEditOpen(true)}
-            className="p-3.5 bg-zinc-900/60 hover:bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700 rounded-2xl flex items-center justify-between cursor-pointer transition-all group"
-          >
-            <div className="flex items-center gap-2.5">
-              <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-zinc-950 shadow-md group-hover:scale-105 transition-transform"
-                style={{ backgroundColor: activeTheme.primary }}
-              >
-                <Palette className="w-4 h-4 text-zinc-950" />
-              </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>{activeTheme.name}</span>
-                </div>
-                <div className="text-[10px] text-zinc-400">
-                  Tap to switch aesthetic theme
-                </div>
-              </div>
-            </div>
-            {/* Color Swatch Dots */}
-            <div className="flex items-center -space-x-1">
-              <span
-                className="w-3.5 h-3.5 rounded-full border border-zinc-900 shadow"
-                style={{ backgroundColor: activeTheme.primary }}
-              />
-              <span
-                className="w-3.5 h-3.5 rounded-full border border-zinc-900 shadow"
-                style={{ backgroundColor: activeTheme.secondary }}
-              />
-            </div>
-          </div>
-
-          {/* Cross-tab notice card */}
-          <div className="p-4 bg-gradient-to-br from-amber-500/10 to-rose-500/10 border border-amber-500/30 rounded-3xl">
-            <div className="flex items-center gap-2 font-bold text-amber-300 text-xs mb-1">
-              <Sparkles className="w-4 h-4" />
-              <span>Multi-Device In Browser</span>
-            </div>
-            <p className="text-[11px] text-zinc-300 leading-relaxed">
-              Open 11:11 in <strong>two browser windows side-by-side</strong>. Hold talk in Window 1 and hear it broadcast out loud in Window 2!
-            </p>
-          </div>
-        </div>
-      </div>
+      {/* Main Full-Screen Body */}
+      <main className="relative z-10 w-full h-full flex flex-col justify-between overflow-hidden">
+        <WalkieTalkieMain
+          activeFriend={activeFriend}
+          friends={friends}
+          onSelectFriend={setActiveFriend}
+          isTransmitting={isTransmitting}
+          isLockedOnAir={isLockedOnAir}
+          isReceiving={isReceiving}
+          incomingSender={incomingSender}
+          onPttStart={handlePttStart}
+          onPttStop={handlePttStop}
+          onToggleLockOnAir={handleToggleLockOnAir}
+          onSendPoke={handleSendPoke}
+          onTriggerFriendReply={() => triggerFriendBanter(activeFriend?.name)}
+          onOpenSoundboard={() => setIsSoundboardOpen(true)}
+          onOpenFriendManager={() => setIsFriendManagerOpen(true)}
+          onOpenAbout={() => setIsAboutOpen(true)}
+          onOpenHistory={() => setIsHistoryOpen(true)}
+          onOpenLockScreen={() => setIsLockScreenOpen(true)}
+          isDnd={isDnd}
+          onToggleDnd={() => {
+            setIsDnd(!isDnd);
+            audioEngine.playPokeSound();
+          }}
+          voiceFilter={voiceFilter}
+          onChangeVoiceFilter={setVoiceFilter}
+          myPin={myPin}
+          hasMicPermission={hasMicPermission}
+          onRequestMic={requestMicAccess}
+          transmissionDuration={transmissionDuration}
+          volume={volume}
+          onChangeVolume={handleVolumeChange}
+          userProfile={userProfile}
+          onOpenProfileEdit={() => setIsProfileEditOpen(true)}
+          activeTheme={activeTheme}
+          onOpenQrCode={handleOpenQrCode}
+          onOpenInstallModal={() => setIsInstallModalOpen(true)}
+        />
+      </main>
 
       {/* Modals */}
       <ProfileEditModal
@@ -840,8 +605,8 @@ export default function App() {
         incomingTransmission={
           isReceiving
             ? {
-                senderName: incomingSender || activeFriend.name,
-                text: incomingText || `${activeFriend.name} is shouting live!`,
+                senderName: incomingSender || (activeFriend ? activeFriend.name : 'Channel 11:11'),
+                text: incomingText || `${activeFriend ? activeFriend.name : 'Someone'} is talking live!`,
                 isPlaying: true,
               }
             : null
@@ -857,8 +622,9 @@ export default function App() {
         myPin={myPin}
         friends={friends}
         onAddFriend={handleAddFriend}
+        onDeleteFriend={handleDeleteFriend}
         onSelectFriend={setActiveFriend}
-        activeFriendId={activeFriend.id}
+        activeFriendId={activeFriend?.id}
         onOpenQrCode={handleOpenQrCode}
       />
 
@@ -875,7 +641,7 @@ export default function App() {
         isOpen={isSoundboardOpen}
         onClose={() => setIsSoundboardOpen(false)}
         onBroadcastSound={handleBroadcastSound}
-        activeFriendName={activeFriend.name}
+        activeFriendName={activeFriend ? activeFriend.name : 'Channel 11:11'}
       />
 
       <AboutModal

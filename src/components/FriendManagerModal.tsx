@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, UserPlus, Hash, Shield, QrCode, Scan } from 'lucide-react';
+import { X, Copy, Check, UserPlus, Hash, Shield, QrCode, Scan, Trash2, Users } from 'lucide-react';
 import { Friend } from '../types';
 import { audioEngine } from '../utils/audioEffects';
 
@@ -9,8 +9,9 @@ interface FriendManagerModalProps {
   myPin: string;
   friends: Friend[];
   onAddFriend: (name: string, pin: string) => void;
+  onDeleteFriend?: (id: string) => void;
   onSelectFriend: (friend: Friend) => void;
-  activeFriendId: string;
+  activeFriendId?: string;
   onOpenQrCode?: (targetFriend?: { name: string; pin: string }) => void;
 }
 
@@ -20,6 +21,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
   myPin,
   friends,
   onAddFriend,
+  onDeleteFriend,
   onSelectFriend,
   activeFriendId,
   onOpenQrCode,
@@ -201,94 +203,122 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
             Your Walkie Circle ({friends.length})
           </div>
 
-          <div className="space-y-2">
-            {friends.map((f) => {
-              const isActive = f.id === activeFriendId;
-              return (
-                <div
-                  key={f.id}
-                  className={`p-3 rounded-2xl border transition-all flex items-center justify-between ${
-                    isActive
-                      ? 'bg-zinc-800 border-emerald-500/60 shadow-lg shadow-emerald-950/30'
-                      : 'bg-zinc-800/40 border-zinc-800 hover:bg-zinc-800/80 hover:border-zinc-700'
-                  }`}
-                >
+          {friends.length === 0 ? (
+            <div className="py-7 px-4 text-center rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/40">
+              <div className="w-12 h-12 mx-auto rounded-2xl bg-zinc-800/80 flex items-center justify-center text-zinc-500 mb-2.5">
+                <Users className="w-6 h-6 text-zinc-400" />
+              </div>
+              <div className="text-xs font-bold text-zinc-300">No friends in your circle yet</div>
+              <p className="text-[11px] text-zinc-500 max-w-xs mx-auto mt-1 leading-relaxed">
+                Enter your friend's name & PIN above, or scan their QR code to add them to your walkie network!
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {friends.map((f) => {
+                const isActive = f.id === activeFriendId;
+                return (
                   <div
-                    onClick={() => {
-                      onSelectFriend(f);
-                      audioEngine.playPokeSound();
-                    }}
-                    className="flex items-center gap-3 cursor-pointer flex-1"
+                    key={f.id}
+                    className={`p-3 rounded-2xl border transition-all flex items-center justify-between ${
+                      isActive
+                        ? 'bg-zinc-800 border-emerald-500/60 shadow-lg shadow-emerald-950/30'
+                        : 'bg-zinc-800/40 border-zinc-800 hover:bg-zinc-800/80 hover:border-zinc-700'
+                    }`}
                   >
-                    <div className="relative">
-                      <img
-                        src={f.avatar}
-                        alt={f.name}
-                        referrerPolicy="no-referrer"
-                        className="w-10 h-10 rounded-full object-cover border-2"
-                        style={{ borderColor: f.accentColor }}
-                      />
-                      <span
-                        className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-zinc-900 ${
-                          f.onlineStatus === 'online'
-                            ? 'bg-emerald-500'
-                            : f.onlineStatus === 'in-class'
-                            ? 'bg-amber-500'
-                            : 'bg-zinc-500'
-                        }`}
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white">{f.name}</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-300">
-                          #{f.pin}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-zinc-400 truncate max-w-[150px]">
-                        {f.statusText}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actions: QR & Select */}
-                  <div className="flex items-center gap-2">
-                    {onOpenQrCode && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenQrCode({ name: f.name, pin: f.pin });
-                        }}
-                        className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors"
-                        title={`Show ${f.name}'s QR Code`}
-                      >
-                        <QrCode className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-
-                    <button
+                    <div
                       onClick={() => {
                         onSelectFriend(f);
                         audioEngine.playPokeSound();
                       }}
-                      className="text-right"
+                      className="flex items-center gap-3 cursor-pointer flex-1 min-w-0"
                     >
-                      {isActive ? (
-                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider px-2 py-1 bg-emerald-950/50 rounded-lg border border-emerald-500/30">
-                          Active
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-zinc-500 hover:text-zinc-300">
-                          Switch
-                        </span>
+                      <div className="relative shrink-0">
+                        <img
+                          src={f.avatar}
+                          alt={f.name}
+                          referrerPolicy="no-referrer"
+                          className="w-10 h-10 rounded-full object-cover border-2"
+                          style={{ borderColor: f.accentColor }}
+                        />
+                        <span
+                          className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-zinc-900 ${
+                            f.onlineStatus === 'online'
+                              ? 'bg-emerald-500'
+                              : f.onlineStatus === 'in-class'
+                              ? 'bg-amber-500'
+                              : 'bg-zinc-500'
+                          }`}
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{f.name}</span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-300 shrink-0">
+                            #{f.pin}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-zinc-400 truncate max-w-[140px]">
+                          {f.statusText}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions: QR & Select & Delete */}
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {onOpenQrCode && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenQrCode({ name: f.name, pin: f.pin });
+                          }}
+                          className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors"
+                          title={`Show ${f.name}'s QR Code`}
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                        </button>
                       )}
-                    </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectFriend(f);
+                          audioEngine.playPokeSound();
+                        }}
+                        className="text-right"
+                      >
+                        {isActive ? (
+                          <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider px-2 py-1 bg-emerald-950/50 rounded-lg border border-emerald-500/30">
+                            Active
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-zinc-400 hover:text-zinc-200 px-1.5 py-1">
+                            Switch
+                          </span>
+                        )}
+                      </button>
+
+                      {onDeleteFriend && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteFriend(f.id);
+                          }}
+                          className="p-1.5 rounded-lg bg-zinc-900/80 hover:bg-rose-950/60 text-zinc-500 hover:text-rose-400 border border-zinc-800 hover:border-rose-500/40 transition-colors"
+                          title={`Remove ${f.name} from circle`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Footer info */}
