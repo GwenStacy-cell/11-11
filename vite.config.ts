@@ -11,7 +11,7 @@ const archiveServerPlugin = (): Plugin => ({
     server.middlewares.use((req, res, next) => {
       if (req.url && (req.url.endsWith('.zip') || req.url.endsWith('.tar.gz'))) {
         const cleanPath = req.url.split('?')[0];
-        const filePath = path.join(__dirname, 'public', cleanPath);
+        const filePath = path.join(import.meta.dirname, 'public', cleanPath);
         if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
           const mimeType = req.url.endsWith('.zip') ? 'application/zip' : 'application/gzip';
           const filename = path.basename(filePath);
@@ -81,7 +81,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {
