@@ -1,0 +1,6 @@
+{
+  "name": "ten ten Walkie-Talkie",
+  "description": "Live push-to-talk walkie-talkie app inspired by the viral ten ten sensation, featuring live voice, radio squelch effects, friend PINs, pokes, and lock-screen playback.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
