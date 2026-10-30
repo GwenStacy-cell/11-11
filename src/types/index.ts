@@ -38,11 +38,12 @@ export interface TransmissionLog {
 }
 
 export interface BroadcastMessage {
-  type: 'ptt-start' | 'ptt-stop' | 'audio-chunk' | 'poke' | 'soundboard' | 'status-update';
+  type: 'ptt-start' | 'ptt-stop' | 'voice-message' | 'audio-chunk' | 'poke' | 'soundboard' | 'status-update';
   senderPin: string;
   senderName: string;
   targetPin?: string;
   audioData?: string; // base64 or audio snippet
   text?: string;
+  duration?: number;
   timestamp: number;
 }

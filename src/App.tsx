@@ -8,15 +8,17 @@ import { Friend, VoiceFilter, TransmissionLog, BroadcastMessage, UserProfile } f
 import { INITIAL_FRIENDS, DEFAULT_VOICE_RESPONSES, FUN_VOICE_RESPONSES } from './data/mockData';
 import { audioEngine } from './utils/audioEffects';
 import { walkieBroadcast } from './utils/broadcast';
+import { walkieP2P } from './utils/webrtc';
+import { usePWAInstall } from './hooks/usePWAInstall';
 import { WalkieTalkieMain } from './components/WalkieTalkieMain';
-import { LockScreenModal } from './components/LockScreenModal';
 import { FriendManagerModal } from './components/FriendManagerModal';
 import { SoundboardModal } from './components/SoundboardModal';
 import { AboutModal } from './components/AboutModal';
 import { TransmissionHistoryModal } from './components/TransmissionHistoryModal';
 import { ProfileEditModal } from './components/ProfileEditModal';
+import { SettingsModal } from './components/SettingsModal';
+import { AddLockScreenModal } from './components/AddLockScreenModal';
 import { QRCodeModal } from './components/QRCodeModal';
-import { InstallAppModal } from './components/InstallAppModal';
 import { THEMES, ThemeId } from './data/themes';
 
 export default function App() {
@@ -29,7 +31,7 @@ export default function App() {
     return generated;
   });
 
-  // User Profile (Avatar, Banner, Note Status, Name)
+  // User Profile
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('tenten_user_profile');
     if (saved) {
@@ -68,23 +70,34 @@ export default function App() {
     }
   };
 
-  // Incoming Audio Gain (Web Audio API)
+  const handleSelectTheme = (themeId: ThemeId) => {
+    setActiveThemeId(themeId);
+    localStorage.setItem('tenten_active_theme', themeId);
+    const th = THEMES[themeId];
+    if (th) {
+      setUserProfile((prev) => ({
+        ...prev,
+        themeId,
+        accentColor: th.primary,
+      }));
+    }
+  };
+
+  // Incoming Audio Gain
   const [volume, setVolume] = useState<number>(() => audioEngine.getIncomingVolume());
 
-  // Friends List (Completely empty by default; cleans out any legacy mock friends)
+  // Friends List
   const [friends, setFriends] = useState<Friend[]>(() => {
     const saved = localStorage.getItem('tenten_friends');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          // Remove default mock friends if previously stored
-          const filtered = parsed.filter(
+          return parsed.filter(
             (f: Friend) =>
               !['f-maya', 'f-leo', 'f-chloe', 'f-alex'].includes(f.id) &&
               !['Maya', 'Leo', 'Chloe', 'Alex'].includes(f.name)
           );
-          return filtered;
         }
       } catch {
         return [];
@@ -93,10 +106,9 @@ export default function App() {
     return INITIAL_FRIENDS;
   });
 
-  // Active Selected Friend (null if no friends added)
+  // Active Selected Friend
   const [activeFriend, setActiveFriend] = useState<Friend | null>(() => friends[0] || null);
 
-  // Keep activeFriend synchronized with friends list
   useEffect(() => {
     if (activeFriend && !friends.some((f) => f.id === activeFriend.id)) {
       setActiveFriend(friends[0] || null);
@@ -117,15 +129,17 @@ export default function App() {
   const [hasMicPermission, setHasMicPermission] = useState(false);
 
   // Modals
-  const [isLockScreenOpen, setIsLockScreenOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isLockScreenGuideOpen, setIsLockScreenGuideOpen] = useState(false);
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
   const [isSoundboardOpen, setIsSoundboardOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isProfileEditOpen, setIsProfileEditOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
-  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [qrTargetFriend, setQrTargetFriend] = useState<{ name: string; pin: string } | null>(null);
+
+  const { isInstallable, install } = usePWAInstall();
 
   const handleOpenQrCode = (target?: { name: string; pin: string }) => {
     setQrTargetFriend(target || null);
@@ -137,6 +151,13 @@ export default function App() {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Initialize WebRTC P2P
+  useEffect(() => {
+    walkieP2P.init(myPin);
+  }, [myPin]);
 
   // Save profile to localStorage
   useEffect(() => {
@@ -148,7 +169,7 @@ export default function App() {
     localStorage.setItem('tenten_friends', JSON.stringify(friends));
   }, [friends]);
 
-  // Handle Volume Change (Web Audio API)
+  // Handle Volume Change
   const handleVolumeChange = (newVol: number) => {
     setVolume(newVol);
     audioEngine.setIncomingVolume(newVol);
@@ -157,12 +178,18 @@ export default function App() {
   // Request Microphone
   const requestMicAccess = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       mediaStreamRef.current = stream;
       setHasMicPermission(true);
       return stream;
     } catch (err) {
-      console.warn('Microphone permission not granted or available:', err);
+      console.warn('Microphone permission not granted:', err);
       setHasMicPermission(false);
       return null;
     }
@@ -177,11 +204,38 @@ export default function App() {
     setTimeout(() => setScreenShake(false), 500);
   };
 
-  // Cross-Tab Broadcast Channel listener
-  useEffect(() => {
-    const unsubscribe = walkieBroadcast.subscribe((msg: BroadcastMessage) => {
-      // Ignore messages from self
+  // Universal Share App
+  const handleShareApp = () => {
+    const shareData = {
+      title: '11:11 Live Walkie-Talkie',
+      text: `Talk with me live on 11:11 Walkie! My PIN is #${myPin}. Enter my PIN to connect!`,
+      url: window.location.href,
+    };
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+      navigator.share(shareData).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(
+        `Join me on 11:11 Live Walkie-Talkie! Add my PIN #${myPin} at ${window.location.href}`
+      );
+      alert(`Link & PIN #${myPin} copied to clipboard! Share it with your friends!`);
+      audioEngine.playPokeSound();
+    }
+  };
+
+  // Reset all data
+  const handleClearData = () => {
+    localStorage.removeItem('tenten_friends');
+    setFriends([]);
+    setActiveFriend(null);
+    setLogs([]);
+    audioEngine.playPokeSound();
+  };
+
+  // Central Incoming Message Handler (BroadcastChannel + WebRTC)
+  const handleIncomingMessage = useCallback(
+    (msg: BroadcastMessage) => {
       if (msg.senderPin === myPin) return;
+      if (msg.targetPin && msg.targetPin !== myPin) return;
 
       if (msg.type === 'ptt-start') {
         if (!isDnd) {
@@ -195,6 +249,48 @@ export default function App() {
         }
         setIsReceiving(false);
         setIncomingSender(null);
+      } else if (msg.type === 'voice-message' && msg.audioData) {
+        if (!isDnd) {
+          setIsReceiving(true);
+          setIncomingSender(msg.senderName);
+
+          // Update lock screen media session
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+              title: '11:11 Live Walkie',
+              artist: `${msg.senderName} is talking`,
+              album: 'Live Walkie Channel',
+              artwork: [
+                { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+                { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+              ],
+            });
+          }
+
+          audioEngine.playRecordedVoice(
+            msg.audioData,
+            voiceFilter,
+            () => {},
+            () => {
+              setIsReceiving(false);
+              setIncomingSender(null);
+            }
+          );
+        }
+
+        setLogs((prev) => [
+          {
+            id: 'log-' + Date.now(),
+            senderName: msg.senderName,
+            senderPin: msg.senderPin,
+            isSelf: false,
+            timestamp: new Date(),
+            durationSec: msg.duration || 2,
+            transcript: `Voice transmission from ${msg.senderName}`,
+            type: 'voice',
+          },
+          ...prev,
+        ]);
       } else if (msg.type === 'poke') {
         if (!isDnd) {
           audioEngine.playPokeSound();
@@ -208,6 +304,7 @@ export default function App() {
             isSelf: false,
             timestamp: new Date(),
             durationSec: 1,
+            transcript: `${msg.senderName} poked you!`,
             type: 'poke',
           },
           ...prev,
@@ -229,46 +326,85 @@ export default function App() {
           ]);
         }
       }
-    });
+    },
+    [myPin, isDnd, voiceFilter]
+  );
 
-    return () => unsubscribe();
-  }, [myPin, isDnd]);
+  // Subscribe to BroadcastChannel & WebRTC
+  useEffect(() => {
+    const unsubBroadcast = walkieBroadcast.subscribe(handleIncomingMessage);
+    const unsubP2P = walkieP2P.onMessage(handleIncomingMessage);
 
-  // PTT Start
-  const handlePttStart = useCallback(() => {
+    return () => {
+      unsubBroadcast();
+      unsubP2P();
+    };
+  }, [handleIncomingMessage]);
+
+  // PTT Start (Records real mic voice)
+  const handlePttStart = useCallback(async () => {
     if (isTransmitting || isReceiving) return;
+
+    let stream = mediaStreamRef.current;
+    if (!stream && navigator.mediaDevices) {
+      stream = await requestMicAccess();
+    }
 
     audioEngine.playPttStart();
     setIsTransmitting(true);
     setTransmissionDuration(0);
 
-    // Broadcast PTT Start to any other connected tabs
-    walkieBroadcast.send({
+    const pttStartMsg: BroadcastMessage = {
       type: 'ptt-start',
       senderPin: myPin,
       senderName: userProfile.name,
       targetPin: activeFriend ? activeFriend.pin : undefined,
       timestamp: Date.now(),
-    });
+    };
+    walkieBroadcast.send(pttStartMsg);
+    if (activeFriend) {
+      walkieP2P.sendToFriend(activeFriend.pin, pttStartMsg);
+    }
 
-    // Start duration timer
+    // Start recording real microphone audio
+    if (stream) {
+      try {
+        audioChunksRef.current = [];
+        let mimeType = '';
+        if (typeof MediaRecorder !== 'undefined') {
+          if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+            mimeType = 'audio/webm;codecs=opus';
+          } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+            mimeType = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
+          }
+          const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+          recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              audioChunksRef.current.push(e.data);
+            }
+          };
+          recorder.start(100);
+          mediaRecorderRef.current = recorder;
+        }
+      } catch (err) {
+        console.warn('Failed to start MediaRecorder:', err);
+      }
+    }
+
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setTransmissionDuration((prev) => prev + 1);
     }, 1000);
+  }, [isTransmitting, isReceiving, myPin, userProfile.name, activeFriend, requestMicAccess]);
 
-    // If mic not requested yet, try
-    if (!hasMicPermission && navigator.mediaDevices) {
-      requestMicAccess();
-    }
-  }, [isTransmitting, isReceiving, myPin, userProfile.name, activeFriend, hasMicPermission, requestMicAccess]);
-
-  // Trigger friend speech banter
+  // Trigger friend speech banter (for solo testing)
   const triggerFriendBanter = useCallback(
     (friendName?: string, customQuote?: string) => {
       if (isDnd) return;
 
-      const targetName = friendName || (activeFriend ? activeFriend.name : 'Channel 11:11');
+      const targetName = friendName || (activeFriend ? activeFriend.name : 'Friend');
       const quotes =
         (FUN_VOICE_RESPONSES && FUN_VOICE_RESPONSES[targetName]) || DEFAULT_VOICE_RESPONSES;
       const textToSpeak = customQuote || quotes[Math.floor(Math.random() * quotes.length)];
@@ -281,11 +417,8 @@ export default function App() {
       audioEngine.speakRadioVoice(
         textToSpeak,
         friendObj?.genderVoice || 'female',
+        () => {},
         () => {
-          // Voice started
-        },
-        () => {
-          // Voice ended
           setIsReceiving(false);
           setIncomingSender(null);
           setIncomingText(null);
@@ -309,7 +442,7 @@ export default function App() {
     [isDnd, activeFriend, friends]
   );
 
-  // PTT Stop
+  // PTT Stop (Sends real recorded audio over WebRTC & BroadcastChannel)
   const handlePttStop = useCallback(() => {
     if (!isTransmitting && !isLockedOnAir) return;
 
@@ -323,18 +456,51 @@ export default function App() {
     }
 
     const duration = Math.max(1, transmissionDuration);
-    const targetLabel = activeFriend ? activeFriend.name : 'Channel 11:11';
+    const targetLabel = activeFriend ? activeFriend.name : 'Friend';
 
-    // Broadcast PTT Stop
-    walkieBroadcast.send({
-      type: 'ptt-stop',
-      senderPin: myPin,
-      senderName: userProfile.name,
-      targetPin: activeFriend ? activeFriend.pin : undefined,
-      timestamp: Date.now(),
-    });
+    // Stop MediaRecorder and transmit real audio
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      const recorder = mediaRecorderRef.current;
+      recorder.onstop = () => {
+        if (audioChunksRef.current.length > 0) {
+          const mime = recorder.mimeType || 'audio/webm';
+          const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64Audio = reader.result as string;
+            const voiceMsg: BroadcastMessage = {
+              type: 'voice-message',
+              senderPin: myPin,
+              senderName: userProfile.name,
+              targetPin: activeFriend ? activeFriend.pin : undefined,
+              audioData: base64Audio,
+              duration,
+              timestamp: Date.now(),
+            };
 
-    // Add to history
+            if (activeFriend) {
+              walkieP2P.sendToFriend(activeFriend.pin, voiceMsg);
+            }
+            walkieBroadcast.send(voiceMsg);
+          };
+          reader.readAsDataURL(audioBlob);
+        }
+      };
+      recorder.stop();
+    } else {
+      const pttStopMsg: BroadcastMessage = {
+        type: 'ptt-stop',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin: activeFriend ? activeFriend.pin : undefined,
+        timestamp: Date.now(),
+      };
+      walkieBroadcast.send(pttStopMsg);
+      if (activeFriend) {
+        walkieP2P.sendToFriend(activeFriend.pin, pttStopMsg);
+      }
+    }
+
     setLogs((prev) => [
       {
         id: 'log-' + Date.now(),
@@ -343,19 +509,19 @@ export default function App() {
         isSelf: true,
         timestamp: new Date(),
         durationSec: duration,
-        transcript: `Transmission to ${targetLabel}`,
+        transcript: `Voice message to ${targetLabel}`,
         type: 'voice',
       },
       ...prev,
     ]);
 
-    // Simulated banter reply if friend is active
+    // Simulated banter reply if friend is active (fallback when testing solo)
     if (activeFriend && !isDnd) {
-      const shouldReply = Math.random() > 0.45;
+      const shouldReply = Math.random() > 0.6;
       if (shouldReply) {
         setTimeout(() => {
           triggerFriendBanter(activeFriend.name);
-        }, 1400);
+        }, 1500);
       }
     }
   }, [
@@ -384,16 +550,21 @@ export default function App() {
     audioEngine.playPokeSound();
     triggerScreenShake();
 
-    const targetLabel = activeFriend ? activeFriend.name : 'Channel 11:11';
-    const targetPin = activeFriend ? activeFriend.pin : '1111';
+    const targetLabel = activeFriend ? activeFriend.name : 'Friend';
+    const targetPin = activeFriend ? activeFriend.pin : undefined;
 
-    walkieBroadcast.send({
+    const pokeMsg: BroadcastMessage = {
       type: 'poke',
       senderPin: myPin,
       senderName: userProfile.name,
-      targetPin: targetPin,
+      targetPin,
       timestamp: Date.now(),
-    });
+    };
+
+    walkieBroadcast.send(pokeMsg);
+    if (activeFriend) {
+      walkieP2P.sendToFriend(activeFriend.pin, pokeMsg);
+    }
 
     setLogs((prev) => [
       {
@@ -433,13 +604,19 @@ export default function App() {
 
   // Soundboard broadcast
   const handleBroadcastSound = (name: string, _soundType: 'siren' | 'roger' | 'alert' | 'wakeup') => {
-    walkieBroadcast.send({
+    const sbMsg: BroadcastMessage = {
       type: 'soundboard',
       senderPin: myPin,
       senderName: userProfile.name,
+      targetPin: activeFriend ? activeFriend.pin : undefined,
       text: name,
       timestamp: Date.now(),
-    });
+    };
+
+    walkieBroadcast.send(sbMsg);
+    if (activeFriend) {
+      walkieP2P.sendToFriend(activeFriend.pin, sbMsg);
+    }
 
     setLogs((prev) => [
       {
@@ -495,6 +672,7 @@ export default function App() {
         e.code === 'Space' &&
         !isTransmitting &&
         !isLockedOnAir &&
+        activeFriend &&
         !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
       ) {
         e.preventDefault();
@@ -503,7 +681,7 @@ export default function App() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && isTransmitting && !isLockedOnAir) {
+      if (e.code === 'Space' && (isTransmitting || isLockedOnAir)) {
         e.preventDefault();
         handlePttStop();
       }
@@ -515,7 +693,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isTransmitting, isLockedOnAir, handlePttStart, handlePttStop]);
+  }, [isTransmitting, isLockedOnAir, activeFriend, handlePttStart, handlePttStop]);
 
   const currentBlurredAvatar = activeFriend ? activeFriend.avatar : userProfile.avatar;
   const currentBlurredName = activeFriend ? activeFriend.name : userProfile.name;
@@ -567,7 +745,9 @@ export default function App() {
           onOpenFriendManager={() => setIsFriendManagerOpen(true)}
           onOpenAbout={() => setIsAboutOpen(true)}
           onOpenHistory={() => setIsHistoryOpen(true)}
-          onOpenLockScreen={() => setIsLockScreenOpen(true)}
+          onOpenLockScreenGuide={() => setIsLockScreenGuideOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onShareApp={handleShareApp}
           isDnd={isDnd}
           onToggleDnd={() => {
             setIsDnd(!isDnd);
@@ -585,11 +765,30 @@ export default function App() {
           onOpenProfileEdit={() => setIsProfileEditOpen(true)}
           activeTheme={activeTheme}
           onOpenQrCode={handleOpenQrCode}
-          onOpenInstallModal={() => setIsInstallModalOpen(true)}
         />
       </main>
 
-      {/* Modals */}
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        myPin={myPin}
+        volume={volume}
+        onChangeVolume={handleVolumeChange}
+        voiceFilter={voiceFilter}
+        onChangeVoiceFilter={setVoiceFilter}
+        userProfile={userProfile}
+        onSaveProfile={handleSaveProfile}
+        activeTheme={activeTheme}
+        onSelectTheme={handleSelectTheme}
+        hasMicPermission={hasMicPermission}
+        onRequestMic={requestMicAccess}
+        onOpenLockScreenGuide={() => setIsLockScreenGuideOpen(true)}
+        onClearData={handleClearData}
+        onShareApp={handleShareApp}
+      />
+
+      {/* Profile Edit Modal */}
       <ProfileEditModal
         isOpen={isProfileEditOpen}
         onClose={() => setIsProfileEditOpen(false)}
@@ -597,25 +796,16 @@ export default function App() {
         onSaveProfile={handleSaveProfile}
       />
 
-      <LockScreenModal
-        isOpen={isLockScreenOpen}
-        onClose={() => setIsLockScreenOpen(false)}
-        friends={friends}
-        activeFriend={activeFriend}
-        incomingTransmission={
-          isReceiving
-            ? {
-                senderName: incomingSender || (activeFriend ? activeFriend.name : 'Channel 11:11'),
-                text: incomingText || `${activeFriend ? activeFriend.name : 'Someone'} is talking live!`,
-                isPlaying: true,
-              }
-            : null
-        }
-        onTriggerIncoming={(name, quote) => {
-          triggerFriendBanter(name, quote);
-        }}
+      {/* Add Lock Screen & PWA Guide Modal */}
+      <AddLockScreenModal
+        isOpen={isLockScreenGuideOpen}
+        onClose={() => setIsLockScreenGuideOpen(false)}
+        onTriggerTestAudio={() => triggerFriendBanter(activeFriend?.name)}
+        onInstallPwa={install}
+        isInstallable={isInstallable}
       />
 
+      {/* Friend Manager Modal */}
       <FriendManagerModal
         isOpen={isFriendManagerOpen}
         onClose={() => setIsFriendManagerOpen(false)}
@@ -628,6 +818,7 @@ export default function App() {
         onOpenQrCode={handleOpenQrCode}
       />
 
+      {/* QR Code Modal */}
       <QRCodeModal
         isOpen={isQrModalOpen}
         onClose={() => setIsQrModalOpen(false)}
@@ -637,29 +828,26 @@ export default function App() {
         targetFriend={qrTargetFriend}
       />
 
+      {/* Soundboard Modal */}
       <SoundboardModal
         isOpen={isSoundboardOpen}
         onClose={() => setIsSoundboardOpen(false)}
         onBroadcastSound={handleBroadcastSound}
-        activeFriendName={activeFriend ? activeFriend.name : 'Channel 11:11'}
+        activeFriendName={activeFriend ? activeFriend.name : 'Friend'}
       />
 
+      {/* About Modal */}
       <AboutModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
       />
 
+      {/* Transmission History Modal */}
       <TransmissionHistoryModal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
         logs={logs}
         onClearLogs={() => setLogs([])}
-      />
-
-      <InstallAppModal
-        isOpen={isInstallModalOpen}
-        onClose={() => setIsInstallModalOpen(false)}
-        myPin={myPin}
       />
     </div>
   );

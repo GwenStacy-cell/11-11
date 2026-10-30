@@ -18,7 +18,10 @@ import {
   Download,
   PhoneCall,
   Plus,
-  UserPlus
+  UserPlus,
+  Settings as SettingsIcon,
+  Share2,
+  Smartphone
 } from 'lucide-react';
 import { Friend, VoiceFilter, UserProfile, AppTheme } from '../types';
 import { LiveWaveform } from './LiveWaveform';
@@ -43,7 +46,9 @@ interface WalkieTalkieMainProps {
   onOpenFriendManager: () => void;
   onOpenAbout: () => void;
   onOpenHistory: () => void;
-  onOpenLockScreen: () => void;
+  onOpenLockScreenGuide: () => void;
+  onOpenSettings: () => void;
+  onShareApp: () => void;
   isDnd: boolean;
   onToggleDnd: () => void;
   voiceFilter: VoiceFilter;
@@ -78,7 +83,9 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
   onOpenFriendManager,
   onOpenAbout,
   onOpenHistory,
-  onOpenLockScreen,
+  onOpenLockScreenGuide,
+  onOpenSettings,
+  onShareApp,
   isDnd,
   onToggleDnd,
   voiceFilter,
@@ -111,7 +118,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
   };
 
   const isHolding = isTransmitting || isLockedOnAir;
-  const targetLabel = activeFriend ? activeFriend.name.toUpperCase() : 'CHANNEL 11:11';
+  const targetLabel = activeFriend ? activeFriend.name.toUpperCase() : 'NO FRIEND SELECTED';
 
   return (
     <div className="w-full h-full flex flex-col justify-between text-white select-none relative overflow-y-auto overflow-x-hidden scrollbar-none">
@@ -132,30 +139,30 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
 
       {/* Floating Transmitting Status Overlay */}
       <div
-        className={`absolute top-4 inset-x-4 z-40 pointer-events-none flex flex-col items-center justify-center transition-all duration-300 ${
+        className={`absolute top-3 inset-x-4 z-40 pointer-events-none flex flex-col items-center justify-center transition-all duration-300 ${
           isHolding ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
         }`}
       >
-        <div className="px-5 py-2.5 rounded-full bg-rose-500/20 border border-rose-500/50 text-rose-300 font-mono text-xs font-bold flex items-center gap-2 shadow-2xl backdrop-blur-xl">
+        <div className="px-5 py-2 rounded-full bg-rose-500/20 border border-rose-500/50 text-rose-300 font-mono text-xs font-bold flex items-center gap-2 shadow-2xl backdrop-blur-xl">
           <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
           <span>TRANSMITTING TO {targetLabel} ({formatTimer(transmissionDuration)})</span>
         </div>
-        <span className="text-[10px] text-zinc-400 mt-1.5 font-medium tracking-wide">
-          {isLockedOnAir ? 'Hands-free locked · Tap button to release' : 'Release button to send transmission'}
+        <span className="text-[10px] text-zinc-400 mt-1 font-medium tracking-wide">
+          {isLockedOnAir ? 'Hands-free active · Tap button or Mic to release' : 'Release button to send transmission'}
         </span>
       </div>
 
-      {/* Main Column Container */}
-      <div className="relative z-10 flex flex-col h-full justify-between max-w-lg mx-auto w-full px-4 sm:px-6 py-2 sm:py-4">
+      {/* Main Container */}
+      <div className="relative z-10 flex flex-col h-full justify-between max-w-lg mx-auto w-full px-4 sm:px-6 py-2 sm:py-3.5">
         
-        {/* Top Header Row: Branding, Channel info & Quick Actions */}
+        {/* Top Header Row */}
         <div className="flex flex-col gap-2">
           <div
             className={`flex items-center justify-between pb-2 border-b border-zinc-800/60 transition-opacity duration-300 ${
               isHolding ? 'opacity-0 pointer-events-none' : 'opacity-100'
             }`}
           >
-            {/* Branding + PIN Card */}
+            {/* Branding + PIN Badge */}
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500 flex items-center justify-center font-black text-xs text-black shadow-lg shadow-amber-500/20">
                 11:11
@@ -188,7 +195,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
 
             {/* Top Action Icons */}
             <div className="flex items-center gap-1.5">
-              {/* Dynamic Signal indicator */}
+              {/* Dynamic Signal */}
               <div className="hidden xs:flex mr-1">
                 <DynamicSignalIndicator
                   isTransmitting={isTransmitting}
@@ -197,17 +204,23 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                 />
               </div>
 
-              {/* Install App Button */}
-              {onOpenInstallModal && (
-                <button
-                  onClick={onOpenInstallModal}
-                  className="px-2.5 py-1.5 bg-gradient-to-r from-amber-500/15 to-orange-500/15 hover:from-amber-500/25 hover:to-orange-500/25 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm"
-                  title="Download & Install 11:11 App"
-                >
-                  <Download className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-[11px]">Install</span>
-                </button>
-              )}
+              {/* Share App */}
+              <button
+                onClick={onShareApp}
+                className="p-2 bg-zinc-900/90 hover:bg-zinc-800 text-amber-400 hover:text-amber-300 border border-amber-500/30 rounded-xl transition-all active:scale-95 shadow-sm"
+                title="Share 11:11 with friends"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+
+              {/* Settings Button */}
+              <button
+                onClick={onOpenSettings}
+                className="p-2 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 rounded-xl transition-colors active:scale-95"
+                title="Settings & Options"
+              >
+                <SettingsIcon className="w-4 h-4" />
+              </button>
 
               {/* Silent / DND Toggle */}
               <button
@@ -222,7 +235,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                 {isDnd ? <BellOff className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
               </button>
 
-              {/* History */}
+              {/* Transmission History */}
               <button
                 onClick={onOpenHistory}
                 className="p-2 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 rounded-xl transition-colors"
@@ -230,19 +243,10 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
               >
                 <History className="w-4 h-4" />
               </button>
-
-              {/* About */}
-              <button
-                onClick={onOpenAbout}
-                className="p-2 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 rounded-xl transition-colors"
-                title="About 11:11"
-              >
-                <Info className="w-4 h-4" />
-              </button>
             </div>
           </div>
 
-          {/* User Profile Card (Compact & Interactive) */}
+          {/* User Profile Card */}
           <div
             className={`transition-opacity duration-300 ${
               isHolding ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -308,7 +312,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
 
             {/* Friend List or Empty State */}
             {friends.length === 0 ? (
-              <div className="p-2.5 bg-zinc-900/60 border border-dashed border-zinc-800 rounded-2xl flex items-center justify-between">
+              <div className="p-3 bg-zinc-900/60 border border-dashed border-zinc-800 rounded-2xl flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
                     <UserPlus className="w-4 h-4" />
@@ -319,13 +323,22 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                   </div>
                 </div>
 
-                <button
-                  onClick={onOpenFriendManager}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-emerald-950/40"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Friend</span>
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={onShareApp}
+                    className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-amber-400 font-bold text-xs rounded-xl flex items-center gap-1 transition-all active:scale-95 border border-zinc-700"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Share</span>
+                  </button>
+                  <button
+                    onClick={onOpenFriendManager}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 transition-all active:scale-95 shadow-md shadow-emerald-950/40"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-2.5 overflow-x-auto pb-1 scrollbar-none">
@@ -385,7 +398,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
             )}
           </div>
 
-          {/* Active Target Banner (Friend Card OR Open Channel Card) */}
+          {/* Active Target Friend Card */}
           <div
             className={`transition-opacity duration-300 ${
               isHolding ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -435,7 +448,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                   <button
                     onClick={onSendPoke}
                     className="px-2.5 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm"
-                    title="Poke friend with screen shake"
+                    title="Poke friend with vibration alert"
                   >
                     <Hand className="w-3.5 h-3.5" />
                     <span>Poke</span>
@@ -444,7 +457,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                   <button
                     onClick={onTriggerFriendReply}
                     className="px-2 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-zinc-300 hover:text-white text-xs font-medium flex items-center gap-1 transition-colors"
-                    title="Simulate friend talking to you"
+                    title="Simulate friend audio reply"
                   >
                     <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
                     <span className="hidden sm:inline">Banter</span>
@@ -452,54 +465,38 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl flex items-center justify-between">
+              <div
+                onClick={onOpenFriendManager}
+                className="p-3 bg-zinc-900/60 hover:bg-zinc-900/80 border border-zinc-800 rounded-2xl flex items-center justify-between cursor-pointer transition-all group"
+              >
                 <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-2xl bg-zinc-800/90 border border-zinc-700 flex items-center justify-center text-amber-400">
-                    <Radio className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
+                    <UserPlus className="w-4 h-4" />
                   </div>
                   <div>
                     <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <span>Broadcast Mode</span>
-                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                        OPEN
-                      </span>
+                      <span>Add Friends to Start Talking</span>
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">
-                      Broadcasting on 11:11 channel to all tuned devices
+                    <div className="text-[10px] text-zinc-400">
+                      Tap here to enter friend PIN or scan their QR code
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  {onOpenQrCode && (
-                    <button
-                      onClick={() => onOpenQrCode()}
-                      className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-amber-400 rounded-xl text-xs font-bold border border-zinc-700 flex items-center gap-1 transition-all active:scale-95 shadow-sm"
-                      title="Share My QR Code"
-                    >
-                      <QrCode className="w-3.5 h-3.5" />
-                      <span>Share</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={onSendPoke}
-                    className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center gap-1 transition-all active:scale-95"
-                  >
-                    <Hand className="w-3.5 h-3.5" />
-                    <span>Ping</span>
-                  </button>
-                </div>
+                <span className="text-xs font-bold text-amber-400 group-hover:translate-x-0.5 transition-transform">
+                  Add +
+                </span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Central Talk Area: Waveform + Tactical PTT Centerpiece + Vertical Gain Slider */}
-        <div className="my-auto py-3 flex flex-col items-center justify-center gap-3 w-full">
+        {/* Central Talk Area: Waveform + Center PTT + Vertical Gain Slider */}
+        <div className="my-auto py-2 flex flex-col items-center justify-center gap-2.5 w-full">
           
           {/* Live Waveform Status Banner */}
           <div
-            className={`w-full max-w-sm h-12 bg-zinc-900/50 rounded-2xl border border-zinc-800/70 flex flex-col items-center justify-center relative overflow-hidden transition-opacity duration-300 ${
+            className={`w-full max-w-sm h-11 bg-zinc-900/50 rounded-2xl border border-zinc-800/70 flex flex-col items-center justify-center relative overflow-hidden transition-opacity duration-300 ${
               isHolding ? 'opacity-0 pointer-events-none' : 'opacity-100'
             }`}
           >
@@ -512,17 +509,22 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
               ) : isReceiving ? (
                 <span className="text-amber-400 animate-pulse flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                  RECEIVING FROM {incomingSender || (activeFriend ? activeFriend.name : 'CHANNEL 11:11')}...
+                  RECEIVING FROM {incomingSender || (activeFriend ? activeFriend.name : 'FRIEND')}...
                 </span>
               ) : isLockedOnAir ? (
                 <span className="text-emerald-400 flex items-center gap-1.5">
                   <Lock className="w-3 h-3" />
                   HANDS-FREE ON AIR ({formatTimer(transmissionDuration)})
                 </span>
+              ) : activeFriend ? (
+                <span className="text-zinc-300 flex items-center gap-1.5">
+                  <Radio className="w-3 h-3 text-emerald-400" />
+                  CONNECTED TO {activeFriend.name.toUpperCase()} · HOLD BUTTON
+                </span>
               ) : (
                 <span className="text-zinc-400 flex items-center gap-1.5">
-                  <Radio className="w-3 h-3 text-zinc-500" />
-                  11:11 READY · HOLD BUTTON TO TALK
+                  <UserPlus className="w-3 h-3 text-amber-400" />
+                  ADD A FRIEND TO TALK LIVE
                 </span>
               )}
             </div>
@@ -573,6 +575,14 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                 <button
                   onPointerDown={(e) => {
                     e.preventDefault();
+                    if (isLockedOnAir) {
+                      onToggleLockOnAir(); // Tapping PTT while locked immediately ends it!
+                      return;
+                    }
+                    if (!activeFriend) {
+                      onOpenFriendManager();
+                      return;
+                    }
                     onPttStart();
                   }}
                   onPointerUp={(e) => {
@@ -615,35 +625,39 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                         ? 'ON AIR'
                         : isReceiving
                         ? 'LISTEN'
-                        : 'HOLD TALK'}
+                        : activeFriend
+                        ? 'HOLD TALK'
+                        : 'ADD FRIEND'}
                     </div>
                     <div className="text-[9px] text-zinc-400 font-medium leading-none mt-0.5">
-                      {isLockedOnAir ? 'Release' : 'or Space'}
+                      {isLockedOnAir ? 'Tap to Stop' : activeFriend ? 'or Space' : 'to start'}
                     </div>
                   </div>
                 </button>
               </div>
 
-              {/* Lock Hands-Free Switch */}
-              <div
-                className={`mt-3.5 flex items-center justify-center transition-opacity duration-300 ${
-                  isHolding ? 'opacity-0 pointer-events-none' : 'opacity-100'
-                }`}
-              >
+              {/* Lock Hands-Free Button - ALWAYS ACCESSIBLE & CLEAR */}
+              <div className="mt-3 flex items-center justify-center z-20">
                 <button
-                  onClick={onToggleLockOnAir}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!activeFriend && !isLockedOnAir) {
+                      onOpenFriendManager();
+                      return;
+                    }
+                    onToggleLockOnAir();
+                  }}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-md ${
                     isLockedOnAir
-                      ? 'text-zinc-950 shadow-lg'
+                      ? 'bg-rose-600 hover:bg-rose-500 text-white ring-4 ring-rose-500/40 animate-pulse'
                       : 'bg-zinc-900/90 text-zinc-300 hover:text-white border border-zinc-800'
                   }`}
                   style={{
-                    backgroundColor: isLockedOnAir ? activeTheme.primary : undefined,
-                    boxShadow: isLockedOnAir ? `0 0 16px ${activeTheme.primary}80` : undefined,
+                    backgroundColor: isLockedOnAir ? '#e11d48' : undefined,
                   }}
                 >
                   {isLockedOnAir ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                  <span>{isLockedOnAir ? 'Release Mic' : 'Lock Hands-Free'}</span>
+                  <span>{isLockedOnAir ? '🔴 End Hands-Free (Release)' : 'Lock Hands-Free'}</span>
                 </button>
               </div>
             </div>
@@ -664,41 +678,41 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
           </div>
         </div>
 
-        {/* Bottom Utility Bar: Lock Screen simulator + Soundboard + Radio Filter + Mic Status */}
+        {/* Bottom Utility Bar */}
         <div
-          className={`flex flex-col gap-2 pt-2 border-t border-zinc-900/80 transition-opacity duration-300 ${
+          className={`flex flex-col gap-2 pt-1 border-t border-zinc-900/80 transition-opacity duration-300 ${
             isHolding ? 'opacity-0 pointer-events-none' : 'opacity-100'
           }`}
         >
-          {/* Viral Lock Screen Simulator Launch Banner */}
+          {/* Add to Lock Screen Button */}
           <button
-            onClick={onOpenLockScreen}
-            className="w-full py-2 px-3 bg-gradient-to-r from-rose-950/40 via-zinc-900/80 to-purple-950/40 hover:from-rose-900/50 hover:to-purple-900/50 border border-rose-500/30 rounded-xl flex items-center justify-between text-left transition-all active:scale-[0.99] group shadow-sm"
+            onClick={onOpenLockScreenGuide}
+            className="w-full py-2 px-3 bg-gradient-to-r from-purple-950/40 via-zinc-900/80 to-amber-950/40 hover:from-purple-900/50 hover:to-amber-900/50 border border-purple-500/30 rounded-xl flex items-center justify-between text-left transition-all active:scale-[0.99] group shadow-sm"
           >
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
-                <Lock className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+              <div className="w-6 h-6 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                <Smartphone className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
               </div>
               <div>
                 <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>11:11 Lock Screen Simulator</span>
-                  <span className="text-[9px] bg-rose-500 text-white font-bold px-1.5 py-0.2 rounded-full">
-                    VIRAL
+                  <span>Add as Lock Screen App</span>
+                  <span className="text-[9px] bg-purple-500 text-white font-bold px-1.5 py-0.2 rounded-full">
+                    PWA
                   </span>
                 </div>
                 <div className="text-[10px] text-zinc-400">
-                  Audio plays aloud through locked phone
+                  Play incoming friend audio over lock screen
                 </div>
               </div>
             </div>
-            <span className="text-xs font-bold text-rose-400 group-hover:translate-x-0.5 transition-transform shrink-0">
-              Try →
+            <span className="text-xs font-bold text-purple-400 group-hover:translate-x-0.5 transition-transform shrink-0">
+              Setup →
             </span>
           </button>
 
           {/* Quick Controls Grid */}
           <div className="grid grid-cols-3 gap-2">
-            {/* Soundboard button */}
+            {/* Soundboard */}
             <button
               onClick={onOpenSoundboard}
               className="py-2.5 px-2 bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
@@ -707,7 +721,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
               <span className="text-[10px] font-bold text-white">Soundboard</span>
             </button>
 
-            {/* Voice Filter selector */}
+            {/* Radio Filter */}
             <button
               onClick={() => setFilterMenuOpen(!filterMenuOpen)}
               className={`py-2.5 px-2 border rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
@@ -720,7 +734,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
               <span className="text-[10px] font-bold">Radio Filter</span>
             </button>
 
-            {/* Microphone Permission status */}
+            {/* Mic Permission */}
             <button
               onClick={onRequestMic}
               className={`py-2.5 px-2 border rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${

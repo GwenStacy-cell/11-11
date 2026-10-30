@@ -1,3 +1,5 @@
+import { VoiceFilter } from '../types';
+
 // Web Audio API synthesizer for authentic walkie-talkie and Ten Ten sound effects
 
 class AudioEngine {
@@ -221,6 +223,90 @@ class AudioEngine {
         osc.start(now + i * 0.08);
         osc.stop(now + i * 0.08 + 0.12);
       });
+    }
+  }
+
+  // Play real recorded voice audio through Web Audio API with radio filters & beeps
+  async playRecordedVoice(
+    audioDataUrl: string,
+    filter: VoiceFilter = 'classic-walkie',
+    onStart?: () => void,
+    onEnd?: () => void
+  ) {
+    try {
+      const ctx = this.getContext();
+      const dest = this.getDestinationNode();
+
+      // Play authentic walkie-talkie opening squelch chirp
+      this.playPttStart();
+      setTimeout(() => {
+        this.playStaticBurst(0.1, 0.14);
+      }, 70);
+
+      try {
+        const res = await fetch(audioDataUrl);
+        const arrayBuffer = await res.arrayBuffer();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+
+        let lastNode: AudioNode = source;
+
+        if (filter === 'classic-walkie') {
+          const bandpass = ctx.createBiquadFilter();
+          bandpass.type = 'bandpass';
+          bandpass.frequency.value = 1800;
+          bandpass.Q.value = 1.2;
+          source.connect(bandpass);
+          lastNode = bandpass;
+        } else if (filter === 'megaphone') {
+          const bandpass = ctx.createBiquadFilter();
+          bandpass.type = 'bandpass';
+          bandpass.frequency.value = 2400;
+          bandpass.Q.value = 3.0;
+          source.connect(bandpass);
+          lastNode = bandpass;
+        } else if (filter === 'deep-radio') {
+          const lowshelf = ctx.createBiquadFilter();
+          lowshelf.type = 'lowshelf';
+          lowshelf.frequency.value = 350;
+          lowshelf.gain.value = 8;
+          source.connect(lowshelf);
+          lastNode = lowshelf;
+        }
+
+        lastNode.connect(dest);
+
+        source.onended = () => {
+          this.playRogerBeep();
+          onEnd?.();
+        };
+
+        setTimeout(() => {
+          onStart?.();
+          source.start(0);
+        }, 160);
+      } catch (decodeErr) {
+        // Fallback to HTML5 Audio element if format cannot be decoded directly
+        const audio = new Audio(audioDataUrl);
+        audio.volume = this.currentVolume;
+        setTimeout(() => {
+          onStart?.();
+          audio.play().catch(() => {});
+        }, 160);
+        audio.onended = () => {
+          this.playRogerBeep();
+          onEnd?.();
+        };
+        audio.onerror = () => {
+          this.playRogerBeep();
+          onEnd?.();
+        };
+      }
+    } catch (e) {
+      this.playRogerBeep();
+      onEnd?.();
     }
   }
 

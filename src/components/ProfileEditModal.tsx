@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Check, Sparkles, Smile, Palette, Radio } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, Check, Sparkles, Palette, Upload, Image as ImageIcon, Camera } from 'lucide-react';
 import { UserProfile, ThemeId } from '../types';
 import { THEMES } from '../data/themes';
 import { audioEngine } from '../utils/audioEffects';
@@ -56,15 +56,44 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const [selectedThemeId, setSelectedThemeId] = useState<ThemeId>(userProfile.themeId || 'amber');
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
 
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const bannerInputRef = useRef<HTMLInputElement | null>(null);
+
   if (!isOpen) return null;
 
   const handleSelectTheme = (themeId: ThemeId) => {
     setSelectedThemeId(themeId);
     const th = THEMES[themeId];
-    // Automatically sync banner and accent color with the aesthetic palette
     setBanner(th.bannerStyle);
     setAccentColor(th.primary);
     audioEngine.playPokeSound();
+  };
+
+  const handleAvatarFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setAvatar(reader.result);
+        setCustomAvatarUrl('');
+        audioEngine.playPokeSound();
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleBannerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setBanner(`url("${reader.result}") center/cover no-repeat`);
+        audioEngine.playPokeSound();
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -89,6 +118,22 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
       <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
         
+        {/* Hidden File Inputs */}
+        <input
+          type="file"
+          ref={avatarInputRef}
+          accept="image/*"
+          className="hidden"
+          onChange={handleAvatarFileUpload}
+        />
+        <input
+          type="file"
+          ref={bannerInputRef}
+          accept="image/*"
+          className="hidden"
+          onChange={handleBannerFileUpload}
+        />
+
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
           <div className="flex items-center gap-2.5">
@@ -99,8 +144,8 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
               <Palette className="w-5 h-5 text-zinc-950" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Customize Profile & Theme</h2>
-              <p className="text-xs text-zinc-400">Switch aesthetic palettes, avatar, banner, and note</p>
+              <h2 className="text-base font-bold text-white">Customize Profile</h2>
+              <p className="text-xs text-zinc-400">Set your gallery photo, banner, and note</p>
             </div>
           </div>
 
@@ -116,44 +161,57 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         <div className="mt-4 rounded-2xl border border-zinc-700/60 overflow-hidden shadow-xl">
           {/* Banner */}
           <div
-            className="h-24 w-full relative transition-all duration-300 flex items-end p-3"
+            className="h-28 w-full relative transition-all duration-300 flex items-end justify-between p-3"
             style={{ background: banner }}
           >
-            <div className="absolute top-2 right-2 text-[10px] font-mono px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-zinc-200 border border-white/20">
-              PIN #{userProfile.pin}
-            </div>
             <div className="text-[10px] font-bold uppercase tracking-wider text-white drop-shadow-md px-2 py-0.5 rounded bg-black/40 backdrop-blur-sm">
               {activeThemeObj.name} Theme
             </div>
+
+            <button
+              type="button"
+              onClick={() => bannerInputRef.current?.click()}
+              className="px-2.5 py-1 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-xl text-white text-[11px] font-semibold border border-white/20 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+              <span>Change Banner</span>
+            </button>
           </div>
 
           {/* Avatar and name bar */}
           <div className="p-4 bg-zinc-950 flex items-start gap-3.5 -mt-8 relative">
-            <div className="relative">
+            <div className="relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
               <img
                 src={customAvatarUrl.trim() || avatar}
                 alt={name}
                 referrerPolicy="no-referrer"
-                className="w-16 h-16 rounded-full object-cover border-4 border-zinc-950 shadow-lg transition-all"
+                className="w-16 h-16 rounded-full object-cover border-4 border-zinc-950 shadow-lg transition-all group-hover:opacity-80"
                 style={{ outline: `2px solid ${accentColor}` }}
               />
+              <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Camera className="w-5 h-5 text-white" />
+              </div>
               <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-zinc-950" />
             </div>
 
             <div className="flex-1 pt-6">
-              <div className="text-sm font-bold text-white flex items-center gap-2">
-                <span>{name || 'Your Name'}</span>
-                <span
-                  className="text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold"
-                  style={{
-                    backgroundColor: activeThemeObj.badgeBg,
-                    color: activeThemeObj.primary,
-                    border: `1px solid ${activeThemeObj.accentBadgeBorder}`,
-                  }}
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>{name || 'Your Name'}</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold bg-zinc-800 text-zinc-300">
+                    #{userProfile.pin}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="text-[11px] font-medium text-amber-400 hover:text-amber-300 flex items-center gap-1"
                 >
-                  11:11 User
-                </span>
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Gallery Photo</span>
+                </button>
               </div>
+
               <div className="text-xs font-medium mt-0.5 flex items-center gap-1.5" style={{ color: activeThemeObj.primary }}>
                 <Sparkles className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">{noteStatus || 'Status Note'}</span>
@@ -164,19 +222,37 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
         <form onSubmit={handleSave} className="mt-5 space-y-4">
           
+          {/* Gallery Upload Actions */}
+          <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-2xl flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              className="flex-1 py-2.5 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all active:scale-95"
+            >
+              <Camera className="w-4 h-4 text-amber-400" />
+              <span>Upload Avatar from Gallery</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => bannerInputRef.current?.click()}
+              className="flex-1 py-2.5 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all active:scale-95"
+            >
+              <ImageIcon className="w-4 h-4 text-emerald-400" />
+              <span>Upload Banner from Gallery</span>
+            </button>
+          </div>
+
           {/* Aesthetic Theme Switcher Section */}
           <div className="p-3.5 bg-zinc-950/70 border border-zinc-800 rounded-2xl">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-1.5 text-xs font-bold text-white">
                 <Palette className="w-4 h-4" style={{ color: activeThemeObj.primary }} />
-                <span>Aesthetic Color Palette</span>
+                <span>Color Theme</span>
               </div>
-              <span className="text-[10px] font-mono text-zinc-400">
-                Full-system styling
-              </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {(Object.keys(THEMES) as ThemeId[]).map((themeKey) => {
                 const th = THEMES[themeKey];
                 const isSelected = selectedThemeId === themeKey;
@@ -185,51 +261,27 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                     type="button"
                     key={themeKey}
                     onClick={() => handleSelectTheme(themeKey)}
-                    className={`p-2.5 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
+                    className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between ${
                       isSelected
-                        ? 'bg-zinc-900 shadow-md ring-2'
+                        ? 'bg-zinc-900 ring-2'
                         : 'bg-zinc-900/40 border-zinc-800 hover:bg-zinc-800/60'
                     }`}
                     style={{
                       borderColor: isSelected ? th.primary : undefined,
-                      boxShadow: isSelected ? `0 0 16px ${th.primary}33` : undefined,
                     }}
                   >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        {/* Color Swatch Dot Pair */}
-                        <div className="flex items-center -space-x-1">
-                          <span
-                            className="w-3.5 h-3.5 rounded-full border border-zinc-950"
-                            style={{ backgroundColor: th.primary }}
-                          />
-                          <span
-                            className="w-3.5 h-3.5 rounded-full border border-zinc-950"
-                            style={{ backgroundColor: th.secondary }}
-                          />
-                        </div>
-                        <span className="text-xs font-bold text-white">{th.name}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center -space-x-1">
+                        <span className="w-3.5 h-3.5 rounded-full border border-zinc-950" style={{ backgroundColor: th.primary }} />
+                        <span className="w-3.5 h-3.5 rounded-full border border-zinc-950" style={{ backgroundColor: th.secondary }} />
                       </div>
-
-                      {isSelected && (
-                        <span
-                          className="w-4 h-4 rounded-full flex items-center justify-center text-zinc-950"
-                          style={{ backgroundColor: th.primary }}
-                        >
-                          <Check className="w-3 h-3 stroke-[3]" />
-                        </span>
-                      )}
+                      <span className="text-xs font-bold text-white">{th.name}</span>
                     </div>
 
-                    <div className="text-[10px] text-zinc-400 line-clamp-1">
-                      {th.tagline}
-                    </div>
+                    {isSelected && <Check className="w-3.5 h-3.5" style={{ color: th.primary }} />}
                   </button>
                 );
               })}
-            </div>
-            <div className="mt-2 text-[10px] text-zinc-500 italic">
-              ⚡ Automatically updates PTT glow, volume fader gradient, borders, and profile banner.
             </div>
           </div>
 
@@ -252,7 +304,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-[11px] font-semibold text-zinc-300">
-                Note Status (Broadcast to friends)
+                Status Note
               </label>
               <span className="text-[10px] text-zinc-500">{noteStatus.length}/60</span>
             </div>
@@ -287,10 +339,10 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             </div>
           </div>
 
-          {/* Profile Banner Selection */}
+          {/* Preset Banners */}
           <div>
             <label className="text-[11px] font-semibold text-zinc-300 block mb-1.5">
-              Profile Banner Preset
+              Or Choose Preset Banner
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {PRESET_BANNERS.map((b) => (
@@ -298,7 +350,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                   type="button"
                   key={b.id}
                   onClick={() => setBanner(b.style)}
-                  className={`h-12 rounded-xl border relative overflow-hidden text-left p-2 transition-all ${
+                  className={`h-11 rounded-xl border relative overflow-hidden text-left p-2 transition-all ${
                     banner === b.style ? 'ring-2 ring-white border-transparent' : 'border-zinc-700 opacity-80 hover:opacity-100'
                   }`}
                   style={{ background: b.style }}
@@ -314,10 +366,10 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             </div>
           </div>
 
-          {/* Avatar Selection */}
+          {/* Preset Avatars */}
           <div>
             <label className="text-[11px] font-semibold text-zinc-300 block mb-1.5">
-              Choose Avatar
+              Or Choose Preset Avatar
             </label>
             <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
               {PRESET_AVATARS.map((avUrl, i) => (
@@ -346,32 +398,6 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 </button>
               ))}
             </div>
-
-            {/* Custom Avatar URL option */}
-            <div className="mt-2.5">
-              <input
-                type="url"
-                value={customAvatarUrl}
-                onChange={(e) => setCustomAvatarUrl(e.target.value)}
-                placeholder="Or paste custom image URL (https://...)"
-                className="w-full px-3 py-1.5 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-zinc-500 placeholder-zinc-500"
-              />
-            </div>
-          </div>
-
-          {/* Bio / About */}
-          <div>
-            <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
-              Short Bio / Status Message
-            </label>
-            <input
-              type="text"
-              value={bio}
-              maxLength={120}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="e.g. Hit me up on walkie channel 11:11!"
-              className="w-full px-3 py-2 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-zinc-500"
-            />
           </div>
 
           {/* Actions */}
@@ -391,7 +417,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 boxShadow: `0 4px 14px ${activeThemeObj.primary}66`,
               }}
             >
-              Save Profile & Theme
+              Save Profile
             </button>
           </div>
         </form>
