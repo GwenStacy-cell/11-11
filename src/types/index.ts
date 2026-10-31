@@ -64,6 +64,7 @@ export interface BroadcastMessage {
     | 'friend-request'
     | 'friend-accept'
     | 'friend-decline'
+    | 'friend-remove'
     | 'profile-update';
   senderPin: string;
   senderName: string;

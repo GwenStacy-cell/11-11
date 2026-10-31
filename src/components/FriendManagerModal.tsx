@@ -17,6 +17,7 @@ import {
   Edit2,
   Clock,
   Sparkles,
+  RotateCw,
 } from 'lucide-react';
 import { Friend, FriendRequest } from '../types';
 import { audioEngine } from '../utils/audioEffects';
@@ -85,9 +86,16 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
       setSuccessMsg('');
       return;
     }
-    if (friends.some((f) => f.pin === pin && !f.isPending)) {
-      setErrorMsg(`Friend #${pin} is already in your circle!`);
-      setSuccessMsg('');
+
+    const existing = friends.find((f) => f.pin === pin);
+    if (existing && !existing.isPending) {
+      onAddFriendByPin(pin);
+      onSelectFriend(existing);
+      setSearchPin('');
+      setErrorMsg('');
+      setSuccessMsg(`Refreshed connection with ${existing.name} (#${pin})!`);
+      audioEngine.playPokeSound();
+      setTimeout(() => setSuccessMsg(''), 4000);
       return;
     }
 
@@ -384,6 +392,22 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
 
                       {/* Actions */}
                       <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        {/* Refresh / Re-send Connection Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAddFriendByPin(f.pin);
+                            setSuccessMsg(`Refreshed connection handshake with #${f.pin}!`);
+                            audioEngine.playPokeSound();
+                            setTimeout(() => setSuccessMsg(''), 3000);
+                          }}
+                          className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                          title={`Refresh connection with ${f.name}`}
+                        >
+                          <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                        </button>
+
                         {/* Rename / Nickname Button */}
                         {!f.isPending && onRenameFriend && (
                           <button
@@ -455,7 +479,9 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onDeleteFriend(f.id);
+                              if (window.confirm(`Remove ${f.name} (#${f.pin}) from your circle? You can re-add them anytime.`)) {
+                                onDeleteFriend(f.id);
+                              }
                             }}
                             className="p-1.5 rounded-lg bg-zinc-900/80 hover:bg-rose-950/60 text-zinc-500 hover:text-rose-400 border border-zinc-800 hover:border-rose-500/40 transition-colors cursor-pointer"
                             title={`Remove ${f.name} from circle`}

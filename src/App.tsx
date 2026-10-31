@@ -219,7 +219,7 @@ export default function App() {
     localStorage.setItem('tenten_friend_requests', JSON.stringify(incomingRequests));
   }, [incomingRequests]);
 
-  // Send friend request by 4-digit PIN
+  // Send friend request by 4-digit PIN (Supports adding and re-adding/refreshing)
   const handleSendFriendRequest = useCallback(
     (targetPin: string) => {
       if (targetPin === myPin) return;
@@ -243,9 +243,20 @@ export default function App() {
       walkieBroadcast.send(reqMsg);
       walkieP2P.sendToFriend(targetPin, reqMsg);
 
-      // Add to circle with pending status
+      // Add to circle with pending status (or refresh existing)
       setFriends((prev) => {
-        if (prev.some((f) => f.pin === targetPin)) return prev;
+        const existing = prev.find((f) => f.pin === targetPin);
+        if (existing) {
+          const refreshed: Friend = {
+            ...existing,
+            statusText: 'Connection request refreshed · Connecting...',
+            lastActive: 'Just now',
+          };
+          const updated = prev.map((f) => (f.pin === targetPin ? refreshed : f));
+          localStorage.setItem('tenten_friends', JSON.stringify(updated));
+          return updated;
+        }
+
         const pendingFriend: Friend = {
           id: 'f-' + targetPin,
           name: `PIN #${targetPin}`,
@@ -264,6 +275,59 @@ export default function App() {
       });
     },
     [myPin, userProfile]
+  );
+
+  // Refresh / Reconnect with friend
+  const handleRefreshFriend = useCallback(
+    (pin: string) => {
+      const friendObj = friends.find((f) => f.pin === pin);
+      const reqMsg: BroadcastMessage = {
+        type: 'friend-request',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin: pin,
+        profile: {
+          name: userProfile.name,
+          avatar: userProfile.avatar,
+          banner: userProfile.banner,
+          noteStatus: userProfile.noteStatus,
+          bio: userProfile.bio,
+          accentColor: userProfile.accentColor,
+        },
+        timestamp: Date.now(),
+      };
+      walkieBroadcast.send(reqMsg);
+      walkieP2P.sendToFriend(pin, reqMsg);
+
+      const statusMsg: BroadcastMessage = {
+        type: 'status-update',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin: pin,
+        text: userProfile.noteStatus || 'Available on 11:11',
+        timestamp: Date.now(),
+      };
+      walkieBroadcast.send(statusMsg);
+      walkieP2P.sendToFriend(pin, statusMsg);
+
+      setFriends((prev) =>
+        prev.map((f) =>
+          f.pin === pin
+            ? { ...f, onlineStatus: 'online', lastActive: 'Just now', statusText: f.noteStatus || 'Connection refreshed' }
+            : f
+        )
+      );
+
+      if (friendObj) {
+        setActiveFriend({
+          ...friendObj,
+          onlineStatus: 'online',
+          lastActive: 'Just now',
+        });
+      }
+      audioEngine.playRogerBeep();
+    },
+    [friends, myPin, userProfile]
   );
 
   // Accept incoming friend request
@@ -624,6 +688,53 @@ export default function App() {
       } else if (msg.type === 'friend-request') {
         const senderProfile = msg.profile;
         const senderName = senderProfile?.name || msg.senderName || `User #${msg.senderPin}`;
+
+        // Check if we already have this friend in our circle (re-adding or refreshing)
+        const existingFriend = friendsRef.current.find((f) => f.pin === msg.senderPin);
+        if (existingFriend) {
+          const refreshedFriend: Friend = {
+            ...existingFriend,
+            name: existingFriend.name === existingFriend.realName ? senderName : existingFriend.name,
+            realName: senderName,
+            avatar: senderProfile?.avatar || existingFriend.avatar,
+            banner: senderProfile?.banner || existingFriend.banner,
+            noteStatus: senderProfile?.noteStatus || existingFriend.noteStatus,
+            bio: senderProfile?.bio || existingFriend.bio,
+            accentColor: senderProfile?.accentColor || existingFriend.accentColor,
+            statusText: senderProfile?.noteStatus || 'Connected on 11:11',
+            onlineStatus: 'online',
+            lastActive: 'Just now',
+            isPending: false,
+          };
+
+          setFriends((prev) => {
+            const updated = prev.map((f) => (f.pin === msg.senderPin ? refreshedFriend : f));
+            localStorage.setItem('tenten_friends', JSON.stringify(updated));
+            return updated;
+          });
+
+          // Send back instant confirmation
+          const acceptMsg: BroadcastMessage = {
+            type: 'friend-accept',
+            senderPin: myPin,
+            senderName: userProfile.name,
+            targetPin: msg.senderPin,
+            profile: {
+              name: userProfile.name,
+              avatar: userProfile.avatar,
+              banner: userProfile.banner,
+              noteStatus: userProfile.noteStatus,
+              bio: userProfile.bio,
+              accentColor: userProfile.accentColor,
+            },
+            timestamp: Date.now(),
+          };
+          walkieBroadcast.send(acceptMsg);
+          walkieP2P.sendToFriend(msg.senderPin, acceptMsg);
+          audioEngine.playRogerBeep();
+          return;
+        }
+
         const newReq: FriendRequest = {
           pin: msg.senderPin,
           name: senderName,
@@ -721,6 +832,22 @@ export default function App() {
           localStorage.setItem('tenten_friends', JSON.stringify(updated));
           return updated;
         });
+      } else if (msg.type === 'friend-remove') {
+        // Friend removed connection: sync local state so both sides are clear to re-add
+        setFriends((prev) => {
+          const updated = prev.filter((f) => f.pin !== msg.senderPin);
+          localStorage.setItem('tenten_friends', JSON.stringify(updated));
+          return updated;
+        });
+        if (activeFriend?.pin === msg.senderPin) {
+          setActiveFriend(null);
+        }
+        setIncomingRequests((prev) => {
+          const filtered = prev.filter((r) => r.pin !== msg.senderPin);
+          localStorage.setItem('tenten_friend_requests', JSON.stringify(filtered));
+          return filtered;
+        });
+        audioEngine.playPokeSound();
       }
     },
     [myPin, voiceFilter, showSpeakerNotification]
@@ -998,8 +1125,9 @@ export default function App() {
     ]);
   };
 
-  // Delete friend
+  // Delete / Remove friend (Cleanly disconnects and syncs with peer)
   const handleDeleteFriend = (id: string) => {
+    const friendToDelete = friends.find((f) => f.id === id);
     setFriends((prev) => {
       const updated = prev.filter((f) => f.id !== id);
       localStorage.setItem('tenten_friends', JSON.stringify(updated));
@@ -1007,6 +1135,25 @@ export default function App() {
     });
     if (activeFriend?.id === id) {
       setActiveFriend(null);
+    }
+    if (friendToDelete) {
+      const removeMsg: BroadcastMessage = {
+        type: 'friend-remove',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin: friendToDelete.pin,
+        timestamp: Date.now(),
+      };
+      walkieBroadcast.send(removeMsg);
+      walkieP2P.sendToFriend(friendToDelete.pin, removeMsg);
+
+      walkieP2P.endCurrentCall();
+
+      setIncomingRequests((prev) => {
+        const filtered = prev.filter((r) => r.pin !== friendToDelete.pin);
+        localStorage.setItem('tenten_friend_requests', JSON.stringify(filtered));
+        return filtered;
+      });
     }
     audioEngine.playPokeSound();
   };
@@ -1119,6 +1266,8 @@ export default function App() {
           incomingRequests={incomingRequests}
           onAcceptRequest={handleAcceptFriendRequest}
           onDeclineRequest={handleDeclineFriendRequest}
+          onDeleteFriend={handleDeleteFriend}
+          onRefreshFriend={handleRefreshFriend}
         />
       </main>
 

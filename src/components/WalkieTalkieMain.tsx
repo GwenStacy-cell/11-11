@@ -24,7 +24,9 @@ import {
   Settings as SettingsIcon,
   Share2,
   Smartphone,
-  Ban
+  Ban,
+  Trash2,
+  RotateCw
 } from 'lucide-react';
 import { Friend, VoiceFilter, UserProfile, AppTheme, FriendRequest } from '../types';
 import { LiveWaveform } from './LiveWaveform';
@@ -75,6 +77,8 @@ interface WalkieTalkieMainProps {
   incomingRequests?: FriendRequest[];
   onAcceptRequest?: (req: FriendRequest) => void;
   onDeclineRequest?: (pin: string) => void;
+  onDeleteFriend?: (id: string) => void;
+  onRefreshFriend?: (pin: string) => void;
 }
 
 const getBannerStyle = (bannerStr: string) => {
@@ -131,6 +135,8 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
   incomingRequests = [],
   onAcceptRequest,
   onDeclineRequest,
+  onDeleteFriend,
+  onRefreshFriend,
 }) => {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
@@ -496,11 +502,18 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                           referrerPolicy="no-referrer"
                           className="w-11 h-11 rounded-full object-cover border border-zinc-700"
                         />
-                        {blockedPins.includes(f.pin) && (
+                        {f.isPending ? (
+                          <span
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-zinc-950 flex items-center justify-center text-[9px] font-black ring-1 ring-zinc-950"
+                            title="Pending connection request"
+                          >
+                            ⏳
+                          </span>
+                        ) : blockedPins.includes(f.pin) ? (
                           <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-bold ring-1 ring-zinc-950">
                             🚫
                           </span>
-                        )}
+                        ) : null}
                         <span
                           className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-zinc-950 ${
                             f.onlineStatus === 'online'
@@ -573,6 +586,19 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
 
                 {/* Quick Friend Actions */}
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  {/* Refresh / Reconnect Friend */}
+                  {onRefreshFriend && (
+                    <button
+                      onClick={() => {
+                        onRefreshFriend(activeFriend.pin);
+                      }}
+                      className="p-2 bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/80 rounded-xl text-zinc-300 hover:text-amber-400 text-xs font-medium flex items-center gap-1 transition-all active:scale-95 shadow-sm cursor-pointer"
+                      title={`Refresh connection with ${activeFriend.name}`}
+                    >
+                      <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                    </button>
+                  )}
+
                   {onOpenQrCode && (
                     <button
                       onClick={() => onOpenQrCode({ name: activeFriend.name, pin: activeFriend.pin })}
@@ -585,7 +611,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
 
                   <button
                     onClick={onSendPoke}
-                    className="px-2.5 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm"
+                    className="px-2.5 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm cursor-pointer"
                     title="Poke friend with vibration alert"
                   >
                     <Hand className="w-3.5 h-3.5" />
@@ -610,6 +636,24 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                     >
                       <Edit2 className="w-3.5 h-3.5 text-amber-400" />
                       <span className="hidden sm:inline">Rename</span>
+                    </button>
+                  )}
+
+                  {/* Remove Friend Button */}
+                  {onDeleteFriend && (
+                    <button
+                      onClick={() => {
+                        const confirmRemove = window.confirm(
+                          `Remove ${activeFriend.name} (#${activeFriend.pin}) from your friend circle? You can re-add them anytime.`
+                        );
+                        if (confirmRemove) {
+                          onDeleteFriend(activeFriend.id);
+                        }
+                      }}
+                      className="p-2 bg-zinc-800/80 hover:bg-rose-950/60 border border-zinc-700/80 hover:border-rose-500/40 rounded-xl text-zinc-400 hover:text-rose-400 text-xs font-medium flex items-center gap-1 transition-all active:scale-95 shadow-sm cursor-pointer"
+                      title={`Remove ${activeFriend.name} from circle`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
 
