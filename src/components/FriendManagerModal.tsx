@@ -32,7 +32,7 @@ interface FriendManagerModalProps {
   onDeleteFriend?: (id: string) => void;
   onSelectFriend: (friend: Friend) => void;
   activeFriendId?: string;
-  onOpenQrCode?: (targetFriend?: { name: string; pin: string }) => void;
+  onOpenQrCode?: (targetFriend?: { name: string; pin: string }, tab?: 'my-code' | 'scanner') => void;
   blockedPins?: string[];
   onToggleBlockPin?: (pin: string) => void;
   incomingRequests?: FriendRequest[];
@@ -79,9 +79,9 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
 
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const pin = searchPin.trim();
-    if (!pin) {
-      setErrorMsg('Please enter a 4-digit PIN code.');
+    const pin = searchPin.replace(/[^0-9]/g, '').trim();
+    if (!pin || pin.length !== 4) {
+      setErrorMsg('Please enter a 4-digit PIN code (e.g. 7419).');
       setFoundUser(null);
       setSuccessMsg('');
       return;
@@ -120,11 +120,22 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
           setFoundUser(result);
           audioEngine.playPokeSound();
         } else {
-          setErrorMsg(`No active user found with PIN #${pin}. Check the PIN or make sure your friend has 11:11 open.`);
+          // Instead of a dead-end error, provide user card so user can send invite/request without blockage
+          setFoundUser({
+            pin,
+            name: `User #${pin}`,
+            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+            bio: 'Not currently active on radar (phone may be locked). You can still send a friend request!',
+          });
         }
       } catch {
         setIsSearching(false);
-        setErrorMsg(`Failed to search for PIN #${pin}. Please try again.`);
+        setFoundUser({
+          pin,
+          name: `User #${pin}`,
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+          bio: 'Connection query timed out. Send a request to connect whenever they open 11:11.',
+        });
       }
     } else {
       setIsSearching(false);
@@ -199,7 +210,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
           <div className="flex items-center gap-1.5">
             {onOpenQrCode && (
               <button
-                onClick={() => onOpenQrCode()}
+                onClick={() => onOpenQrCode(undefined, 'my-code')}
                 className="p-2 bg-zinc-800 hover:bg-zinc-700 text-indigo-300 rounded-xl text-xs font-semibold border border-zinc-700 flex items-center gap-1 transition-all active:scale-95 shadow-sm cursor-pointer"
                 title="Show My QR Code"
               >
@@ -238,7 +249,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
             {onOpenQrCode && (
               <button
                 type="button"
-                onClick={() => onOpenQrCode()}
+                onClick={() => onOpenQrCode(undefined, 'scanner')}
                 className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
               >
                 <Scan className="w-3.5 h-3.5" />
@@ -548,7 +559,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onOpenQrCode({ name: f.name, pin: f.pin });
+                              onOpenQrCode({ name: f.name, pin: f.pin }, 'my-code');
                             }}
                             className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-indigo-300 border border-zinc-700 transition-colors cursor-pointer"
                             title={`Show ${f.name}'s QR Code`}

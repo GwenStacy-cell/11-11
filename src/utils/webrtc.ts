@@ -1,5 +1,7 @@
 import { Peer, DataConnection, MediaConnection } from 'peerjs';
 import { BroadcastMessage } from '../types';
+import { walkieBroadcast } from './broadcast';
+import { saveKnownProfile, getKnownProfile } from './knownUsers';
 
 type MessageHandler = (msg: BroadcastMessage) => void;
 type CallHandler = (senderPin: string, stream: MediaStream, call: MediaConnection) => void;
@@ -83,6 +85,9 @@ class WalkieP2P {
     conn.on('data', (data) => {
       try {
         const msg = (typeof data === 'string' ? JSON.parse(data) : data) as BroadcastMessage;
+        if (msg.profile && msg.senderPin) {
+          saveKnownProfile({ pin: msg.senderPin, ...msg.profile });
+        }
         this.messageListeners.forEach((fn) => fn(msg));
       } catch (e) {
         console.warn('Failed to parse P2P message', e);
@@ -167,63 +172,114 @@ class WalkieP2P {
   }
 
   // Verify and query if a user with targetPin exists online
-  checkUserExists(targetPin: string, timeoutMs: number = 2800): Promise<{ exists: boolean; profile?: any }> {
+  checkUserExists(targetPin: string, timeoutMs: number = 3800): Promise<{ exists: boolean; profile?: any }> {
+    const cleanPin = targetPin.replace(/[^0-9]/g, '').trim();
     return new Promise((resolve) => {
-      if (!this.peer || targetPin === this.myPin) {
+      if (!cleanPin || cleanPin === this.myPin) {
         resolve({ exists: false });
         return;
       }
 
-      const targetPeerId = `tenten-walkie-${targetPin}`;
+      // Check known profiles cache first
+      const cached = getKnownProfile(cleanPin);
+
+      const targetPeerId = `tenten-walkie-${cleanPin}`;
       let resolved = false;
 
       const finish = (result: { exists: boolean; profile?: any }) => {
         if (!resolved) {
           resolved = true;
           clearTimeout(timer);
+          cleanupBroadcast();
+          cleanupMsg();
+          if (peerErrHandler && this.peer) {
+            this.peer.off('error', peerErrHandler);
+          }
+          if (result.profile) {
+            saveKnownProfile({ pin: cleanPin, ...result.profile });
+          }
           resolve(result);
         }
       };
 
       const timer = setTimeout(() => {
-        finish({ exists: false });
+        if (cached) {
+          finish({ exists: true, profile: cached });
+        } else {
+          finish({ exists: false });
+        }
       }, timeoutMs);
 
-      // Listen for profile response
+      // Listen for profile response from direct P2P data connection
       const cleanupMsg = this.onMessage((msg) => {
-        if (msg.type === 'profile-response' && msg.senderPin === targetPin) {
-          cleanupMsg();
+        if (msg.type === 'profile-response' && msg.senderPin === cleanPin) {
           finish({ exists: true, profile: msg.profile });
         }
       });
 
-      // Try connecting to peer
-      try {
-        const conn = this.peer.connect(targetPeerId, { reliable: true });
+      // Listen for profile response from local BroadcastChannel
+      const cleanupBroadcast = walkieBroadcast.subscribe((msg) => {
+        if (msg.type === 'profile-response' && msg.senderPin === cleanPin) {
+          finish({ exists: true, profile: msg.profile });
+        }
+      });
 
-        conn.on('open', () => {
-          this.setupConnection(conn);
-          const queryMsg: BroadcastMessage = {
-            type: 'profile-query',
-            senderPin: this.myPin,
-            senderName: '',
-            targetPin,
-            timestamp: Date.now(),
-          };
-          try {
-            conn.send(JSON.stringify(queryMsg));
-          } catch {
-            // fallback
+      // Listen for peer-unavailable error from PeerJS broker
+      const peerErrHandler = (err: any) => {
+        if (err && (err.type === 'peer-unavailable' || (err.message && err.message.includes(targetPeerId)))) {
+          if (cached) {
+            finish({ exists: true, profile: cached });
+          } else {
+            finish({ exists: false });
           }
-        });
+        }
+      };
 
-        conn.on('error', () => {
-          cleanupMsg();
+      if (this.peer) {
+        this.peer.on('error', peerErrHandler);
+      }
+
+      // Try connecting to peer
+      if (this.peer) {
+        try {
+          const conn = this.peer.connect(targetPeerId, { reliable: true });
+
+          conn.on('open', () => {
+            this.setupConnection(conn);
+            const queryMsg: BroadcastMessage = {
+              type: 'profile-query',
+              senderPin: this.myPin,
+              senderName: '',
+              targetPin: cleanPin,
+              timestamp: Date.now(),
+            };
+            try {
+              conn.send(JSON.stringify(queryMsg));
+            } catch {
+              // fallback
+            }
+          });
+
+          conn.on('error', () => {
+            if (cached) {
+              finish({ exists: true, profile: cached });
+            } else {
+              finish({ exists: false });
+            }
+          });
+        } catch {
+          if (cached) {
+            finish({ exists: true, profile: cached });
+          } else {
+            finish({ exists: false });
+          }
+        }
+      } else {
+        if (cached) {
+          finish({ exists: true, profile: cached });
+        } else {
           finish({ exists: false });
-        });
-      } catch {
-        cleanupMsg();
-        finish({ exists: false });
+        }
       }
     });
   }

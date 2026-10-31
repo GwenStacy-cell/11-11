@@ -353,20 +353,23 @@ export default function App() {
   // Real Search by 4-digit PIN (Instagram / Facebook logic: queries live network)
   const handleSearchUser = useCallback(
     async (pin: string): Promise<FoundUser | null> => {
+      const cleanPin = pin.replace(/[^0-9]/g, '').trim();
+      if (!cleanPin || cleanPin === myPin) return null;
+
       const queryMsg: BroadcastMessage = {
         type: 'profile-query',
         senderPin: myPin,
         senderName: userProfile.name,
-        targetPin: pin,
+        targetPin: cleanPin,
         timestamp: Date.now(),
       };
       walkieBroadcast.send(queryMsg);
 
-      const result = await walkieP2P.checkUserExists(pin);
+      const result = await walkieP2P.checkUserExists(cleanPin);
       if (result.exists && result.profile) {
         return {
-          pin,
-          name: result.profile.name || `User #${pin}`,
+          pin: cleanPin,
+          name: result.profile.name || `User #${cleanPin}`,
           avatar: result.profile.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
           banner: result.profile.banner,
           noteStatus: result.profile.noteStatus,
@@ -552,11 +555,13 @@ export default function App() {
   const [isProfileEditOpen, setIsProfileEditOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [qrTargetFriend, setQrTargetFriend] = useState<{ name: string; pin: string } | null>(null);
+  const [qrInitialTab, setQrInitialTab] = useState<'my-code' | 'scanner'>('my-code');
 
   const { isInstallable, install } = usePWAInstall();
 
-  const handleOpenQrCode = (target?: { name: string; pin: string }) => {
+  const handleOpenQrCode = (target?: { name: string; pin: string }, tab: 'my-code' | 'scanner' = 'my-code') => {
     setQrTargetFriend(target || null);
+    setQrInitialTab(tab);
     setIsQrModalOpen(true);
   };
 
@@ -1421,6 +1426,7 @@ export default function App() {
         onAddFriend={(_name, pin) => handleSendFriendRequest(pin)}
         targetFriend={qrTargetFriend}
         onShareApp={handleShareApp}
+        initialTab={qrInitialTab}
       />
 
       {/* About Modal */}

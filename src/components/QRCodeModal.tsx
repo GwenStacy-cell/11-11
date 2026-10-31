@@ -1,7 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
-import { X, QrCode, Scan, Copy, Check, Sparkles, UserPlus, Camera, RefreshCw, Share2 } from 'lucide-react';
+import jsQR from 'jsqr';
+import {
+  X,
+  QrCode,
+  Scan,
+  Copy,
+  Check,
+  Camera,
+  RefreshCw,
+  Share2,
+  Image as ImageIcon,
+  RotateCcw,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+} from 'lucide-react';
 import { audioEngine } from '../utils/audioEffects';
+import { parseQrContent } from '../utils/qrParser';
 
 interface QRCodeModalProps {
   isOpen: boolean;
@@ -11,6 +27,7 @@ interface QRCodeModalProps {
   onAddFriend: (name: string, pin: string) => void;
   targetFriend?: { name: string; pin: string } | null;
   onShareApp?: () => void;
+  initialTab?: 'my-code' | 'scanner';
 }
 
 export const QRCodeModal: React.FC<QRCodeModalProps> = ({
@@ -21,19 +38,35 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
   onAddFriend,
   targetFriend,
   onShareApp,
+  initialTab = 'my-code',
 }) => {
-  const [activeTab, setActiveTab] = useState<'my-code' | 'scanner'>('my-code');
+  const [activeTab, setActiveTab] = useState<'my-code' | 'scanner'>(initialTab);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [scanSuccessMsg, setScanSuccessMsg] = useState('');
+  const [isProcessingGallery, setIsProcessingGallery] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const displayPin = targetFriend ? targetFriend.pin : myPin;
   const displayName = targetFriend ? targetFriend.name : userName;
 
-  // Generate QR Code data URL
+  // Sync initial tab when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+      setCameraError(null);
+      setScanSuccessMsg('');
+    }
+  }, [isOpen, initialTab]);
+
+  // Generate QR Code data URL for "My QR Code" tab
   useEffect(() => {
     if (!isOpen) return;
 
@@ -56,10 +89,10 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
       .catch((err) => console.error('Failed to generate QR code:', err));
   }, [isOpen, displayPin, displayName]);
 
-  // Handle camera for scanner tab
+  // Start/Stop Camera for Scanner tab
   useEffect(() => {
     if (isOpen && activeTab === 'scanner') {
-      startCamera();
+      startCamera(facingMode);
     } else {
       stopCamera();
     }
@@ -68,31 +101,203 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
     };
   }, [isOpen, activeTab]);
 
-  const startCamera = async () => {
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-        mediaStreamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-        setCameraActive(true);
-      }
-    } catch (err) {
-      console.warn('Camera access error or denied:', err);
-      setCameraActive(false);
-    }
-  };
-
   const stopCamera = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setCameraActive(false);
+  };
+
+  const startCamera = async (currentFacing: 'environment' | 'user') => {
+    stopCamera();
+    setCameraError(null);
+
+    if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
+      setCameraError('Camera is not supported on this browser or requires HTTPS.');
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    try {
+      // 1. First attempt: preferred facingMode
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: currentFacing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+    } catch (err1) {
+      console.warn('Preferred camera facing mode failed, attempting generic fallback:', err1);
+      try {
+        // 2. Generic fallback: any available video device
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      } catch (err2: any) {
+        console.error('All camera attempts failed:', err2);
+        setCameraActive(false);
+        if (err2?.name === 'NotAllowedError' || err2?.name === 'PermissionDeniedError') {
+          setCameraError('Camera permission was denied. Please allow camera permissions in browser settings, or use Gallery scanning below.');
+        } else if (err2?.name === 'NotFoundError' || err2?.name === 'DevicesNotFoundError') {
+          setCameraError('No camera found on this device. You can scan a QR code from your photo gallery.');
+        } else {
+          setCameraError('Could not open camera. Please tap "Scan QR from Gallery Photo" below.');
+        }
+        return;
+      }
+    }
+
+    if (stream) {
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.muted = true;
+        try {
+          await videoRef.current.play();
+        } catch (e) {
+          console.warn('Video play interrupted:', e);
+        }
+      }
+      setCameraActive(true);
+      startLiveQrScanning();
+    }
+  };
+
+  // Continuous frame scanning loop with jsQR
+  const startLiveQrScanning = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let isFinished = false;
+
+    const tick = () => {
+      if (!mediaStreamRef.current || isFinished) return;
+
+      const video = videoRef.current;
+      if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'dontInvert',
+            });
+
+            if (code && code.data) {
+              const parsed = parseQrContent(code.data);
+              if (parsed && parsed.pin) {
+                isFinished = true;
+                handleQrDetected(parsed.pin, parsed.name);
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      animFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    animFrameRef.current = requestAnimationFrame(tick);
+  };
+
+  // Gallery photo upload & decode
+  const handleGalleryFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset value so user can re-pick same image if needed
+    e.target.value = '';
+
+    setIsProcessingGallery(true);
+    setScanSuccessMsg('');
+    setCameraError(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
+          setIsProcessingGallery(false);
+          setCameraError('Unable to initialize image processor.');
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: 'attemptBoth',
+        });
+
+        setIsProcessingGallery(false);
+
+        if (code && code.data) {
+          const parsed = parseQrContent(code.data);
+          if (parsed && parsed.pin) {
+            handleQrDetected(parsed.pin, parsed.name);
+          } else {
+            setCameraError(`QR code found, but no 4-digit PIN was identified: "${code.data.slice(0, 32)}..."`);
+          }
+        } else {
+          setCameraError('No QR code detected in this photo. Please choose a clear, uncropped photo or screenshot of the QR code.');
+        }
+      };
+      img.onerror = () => {
+        setIsProcessingGallery(false);
+        setCameraError('Could not load image file from gallery.');
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = () => {
+      setIsProcessingGallery(false);
+      setCameraError('Failed to read file from gallery.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Successful QR code detection
+  const handleQrDetected = (pin: string, name?: string) => {
+    const cleanPin = pin.replace(/[^0-9]/g, '').trim();
+    if (cleanPin === myPin) {
+      setCameraError("That is your own QR code! Scan a friend's code to connect.");
+      return;
+    }
+
+    try {
+      if (navigator.vibrate) {
+        navigator.vibrate([100, 50, 100]);
+      }
+    } catch {
+      // ignore
+    }
+
+    audioEngine.playPokeSound();
+    const friendName = name?.trim() || `User #${cleanPin}`;
+    setScanSuccessMsg(`Scanned #${cleanPin}! Sending friend request...`);
+    onAddFriend(friendName, cleanPin);
+
+    stopCamera();
+
+    setTimeout(() => {
+      setScanSuccessMsg(`Friend request sent to ${friendName}!`);
+      setTimeout(() => {
+        onClose();
+      }, 1400);
+    }, 1200);
   };
 
   if (!isOpen) return null;
@@ -104,14 +309,10 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSimulateScan = (friendName: string, friendPin: string) => {
-    audioEngine.playPokeSound();
-    onAddFriend(friendName, friendPin);
-    setScanSuccessMsg(`Successfully added ${friendName} (#${friendPin}) to your Walkie Circle!`);
-    setTimeout(() => {
-      setScanSuccessMsg('');
-      onClose();
-    }, 1800);
+  const handleToggleCamera = () => {
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(nextMode);
+    startCamera(nextMode);
   };
 
   return (
@@ -121,7 +322,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors z-10"
+          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors z-10 cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -130,7 +331,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
         <div className="w-full flex items-center p-1 bg-zinc-950 rounded-2xl border border-zinc-800 mb-5">
           <button
             onClick={() => setActiveTab('my-code')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+            className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               activeTab === 'my-code'
                 ? 'bg-indigo-600 text-white shadow-md'
                 : 'text-zinc-400 hover:text-white'
@@ -141,7 +342,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('scanner')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+            className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               activeTab === 'scanner'
                 ? 'bg-indigo-600 text-white shadow-md'
                 : 'text-zinc-400 hover:text-white'
@@ -152,15 +353,15 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
           </button>
         </div>
 
-        {/* TAB 1: Display QR Code */}
+        {/* TAB 1: My QR Code */}
         {activeTab === 'my-code' && (
           <div className="w-full flex flex-col items-center animate-in fade-in duration-200">
             <div className="text-center mb-3">
-              <h3 className="text-sm font-bold text-white flex items-center justify-center gap-1.5">
-                <span>{displayName}'s 11:11 Walkie QR</span>
+              <h3 className="text-sm font-bold text-white">
+                {targetFriend ? `${targetFriend.name}'s PIN Card` : 'Your Walkie PIN Card'}
               </h3>
               <p className="text-[11px] text-zinc-400 mt-0.5">
-                Scan with camera to connect immediately
+                Scan with camera or upload photo to connect instantly
               </p>
             </div>
 
@@ -204,7 +405,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
               </button>
             </div>
 
-            {/* Share App Button (Directly inside PIN/QR Modal) */}
+            {/* Share App Button */}
             {onShareApp && (
               <button
                 onClick={onShareApp}
@@ -217,13 +418,13 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: QR Scanner */}
+        {/* TAB 2: QR Scanner (Camera + Gallery) */}
         {activeTab === 'scanner' && (
           <div className="w-full flex flex-col items-center animate-in fade-in duration-200">
             <div className="text-center mb-3">
               <h3 className="text-sm font-bold text-white">Scan Friend's QR Code</h3>
               <p className="text-[11px] text-zinc-400">
-                Point camera at a friend's 11:11 QR code
+                Point camera at code or pick a photo from gallery
               </p>
             </div>
 
@@ -233,31 +434,95 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
                 <video
                   ref={videoRef}
                   playsInline
+                  autoPlay
                   muted
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="text-center p-4 text-zinc-500 text-xs">
-                  <Camera className="w-10 h-10 mx-auto mb-2 opacity-40 text-indigo-400" />
-                  <span>Camera Viewfinder</span>
+                <div className="text-center p-4 text-zinc-500 text-xs flex flex-col items-center justify-center h-full">
+                  <Camera className="w-10 h-10 mb-2 opacity-40 text-indigo-400" />
+                  <span>{cameraError ? 'Camera unavailable' : 'Starting camera...'}</span>
+                  {!cameraActive && (
+                    <button
+                      type="button"
+                      onClick={() => startCamera(facingMode)}
+                      className="mt-2 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-indigo-300 text-[11px] font-semibold rounded-lg border border-zinc-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Retry Camera</span>
+                    </button>
+                  )}
                 </div>
               )}
 
-              {/* Subtle laser scanning line */}
-              <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-indigo-400 to-transparent animate-bounce shadow-lg shadow-indigo-400" />
+              {/* Laser scanning bar animation when active */}
+              {cameraActive && (
+                <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-indigo-400 to-transparent animate-bounce shadow-lg shadow-indigo-400" />
+              )}
+
+              {/* Camera flip toggle button */}
+              {cameraActive && (
+                <button
+                  type="button"
+                  onClick={handleToggleCamera}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700 shadow-md backdrop-blur-sm transition-all cursor-pointer"
+                  title="Switch Front/Rear Camera"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
 
               {/* Viewfinder Corner Brackets */}
-              <div className="absolute top-3 left-3 w-4 h-4 border-t-2 border-l-2 border-indigo-400" />
-              <div className="absolute top-3 right-3 w-4 h-4 border-t-2 border-r-2 border-indigo-400" />
-              <div className="absolute bottom-3 left-3 w-4 h-4 border-b-2 border-l-2 border-indigo-400" />
-              <div className="absolute bottom-3 right-3 w-4 h-4 border-b-2 border-r-2 border-indigo-400" />
+              <div className="absolute top-3 left-3 w-4 h-4 border-t-2 border-l-2 border-indigo-400 pointer-events-none" />
+              <div className="absolute top-3 right-3 w-4 h-4 border-t-2 border-r-2 border-indigo-400 pointer-events-none" />
+              <div className="absolute bottom-3 left-3 w-4 h-4 border-b-2 border-l-2 border-indigo-400 pointer-events-none" />
+              <div className="absolute bottom-3 right-3 w-4 h-4 border-b-2 border-r-2 border-indigo-400 pointer-events-none" />
             </div>
 
-            {scanSuccessMsg && (
-              <div className="mt-3 p-2.5 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-center text-xs font-bold text-emerald-400 animate-in fade-in">
-                {scanSuccessMsg}
+            {/* Error Message */}
+            {cameraError && (
+              <div className="mt-3 w-full p-2.5 bg-rose-950/50 border border-rose-500/40 rounded-xl text-[11px] text-rose-300 flex items-start gap-1.5 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                <span className="leading-snug">{cameraError}</span>
               </div>
             )}
+
+            {/* Success Message */}
+            {scanSuccessMsg && (
+              <div className="mt-3 w-full p-2.5 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-center text-xs font-bold text-emerald-400 flex items-center justify-center gap-1.5 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{scanSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Gallery Upload Option ("and it should also scanned from gallery add that option also") */}
+            <div className="w-full mt-4 pt-3 border-t border-zinc-800">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleGalleryFileSelect}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessingGallery}
+                className="w-full py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 border border-zinc-700 transition-all active:scale-95 cursor-pointer shadow-md disabled:opacity-50"
+              >
+                {isProcessingGallery ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                    <span>Scanning photo from gallery...</span>
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-4 h-4 text-indigo-400" />
+                    <span>Scan QR from Gallery Photo</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>

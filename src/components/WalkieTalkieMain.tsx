@@ -50,7 +50,7 @@ interface WalkieTalkieMainProps {
   userProfile: UserProfile;
   onOpenProfileEdit: () => void;
   activeTheme: AppTheme;
-  onOpenQrCode?: (targetFriend?: { name: string; pin: string }) => void;
+  onOpenQrCode?: (targetFriend?: { name: string; pin: string }, tab?: 'my-code' | 'scanner') => void;
   blockedPins?: string[];
   onBlockFriend?: (pin: string) => void;
   onUnblockFriend?: (pin: string) => void;
