@@ -349,65 +349,6 @@ class AudioEngine {
       onEnd?.();
     }
   }
-
-  // Simulated live radio voice through speech synthesis with squelch
-  speakRadioVoice(
-    text: string,
-    gender: 'female' | 'male' = 'female',
-    onStart?: () => void,
-    onEnd?: () => void
-  ) {
-    if (!('speechSynthesis' in window)) {
-      onStart?.();
-      setTimeout(() => onEnd?.(), 1500);
-      return;
-    }
-
-    // Cancel any ongoing speech
-    window.speechSynthesis.cancel();
-
-    // Opening squelch
-    this.playPttStart();
-    setTimeout(() => {
-      this.playStaticBurst(0.1, 0.12);
-    }, 70);
-
-    setTimeout(() => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.05; // slightly faster radio cadence
-      utterance.pitch = gender === 'female' ? 1.25 : 0.85;
-      utterance.volume = this.currentVolume; // sync with Web Audio API master gain!
-
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        // pick English voice
-        const engVoice = voices.find((v) =>
-          gender === 'female'
-            ? v.lang.startsWith('en') && (v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Google US English'))
-            : v.lang.startsWith('en') && (v.name.includes('Male') || v.name.includes('David') || v.name.includes('Mark'))
-        ) || voices.find(v => v.lang.startsWith('en'));
-
-        if (engVoice) utterance.voice = engVoice;
-      }
-
-      utterance.onstart = () => {
-        onStart?.();
-      };
-
-      utterance.onend = () => {
-        // Roger beep closing
-        this.playRogerBeep();
-        onEnd?.();
-      };
-
-      utterance.onerror = () => {
-        this.playRogerBeep();
-        onEnd?.();
-      };
-
-      window.speechSynthesis.speak(utterance);
-    }, 180);
-  }
 }
 
 export const audioEngine = new AudioEngine();

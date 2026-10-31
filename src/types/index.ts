@@ -1,13 +1,28 @@
 export interface Friend {
   id: string;
-  name: string;
+  name: string; // Displayed name (or user nickname)
+  realName?: string; // Original name set by the friend
   pin: string;
-  avatar: string;
+  avatar: string; // Real uploaded gallery photo or profile avatar
+  banner?: string; // Real uploaded gallery banner or theme
+  noteStatus?: string;
+  bio?: string;
   statusText: string;
   onlineStatus: 'online' | 'in-class' | 'dnd' | 'offline';
   lastActive: string;
   accentColor: string;
-  genderVoice?: 'female' | 'male';
+  isPending?: boolean;
+}
+
+export interface FriendRequest {
+  pin: string;
+  name: string;
+  avatar: string;
+  banner?: string;
+  noteStatus?: string;
+  bio?: string;
+  accentColor?: string;
+  timestamp: number;
 }
 
 export interface UserProfile {
@@ -38,7 +53,18 @@ export interface TransmissionLog {
 }
 
 export interface BroadcastMessage {
-  type: 'ptt-start' | 'ptt-stop' | 'voice-message' | 'audio-chunk' | 'poke' | 'soundboard' | 'status-update';
+  type:
+    | 'ptt-start'
+    | 'ptt-stop'
+    | 'voice-message'
+    | 'audio-chunk'
+    | 'poke'
+    | 'soundboard'
+    | 'status-update'
+    | 'friend-request'
+    | 'friend-accept'
+    | 'friend-decline'
+    | 'profile-update';
   senderPin: string;
   senderName: string;
   targetPin?: string;
@@ -46,4 +72,12 @@ export interface BroadcastMessage {
   text?: string;
   duration?: number;
   timestamp: number;
+  profile?: {
+    name: string;
+    avatar: string;
+    banner?: string;
+    noteStatus?: string;
+    bio?: string;
+    accentColor?: string;
+  };
 }

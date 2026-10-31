@@ -129,13 +129,18 @@ export const TransmissionHistoryModal: React.FC<TransmissionHistoryModalProps> =
                     </div>
                   </div>
 
-                  {log.transcript && log.type === 'voice' && (
+                  {log.type === 'voice' && (
                     <button
                       onClick={() => {
-                        audioEngine.speakRadioVoice(log.transcript || 'Voice replay');
+                        if (log.audioBlobUrl) {
+                          const audio = new Audio(log.audioBlobUrl);
+                          audio.play().catch(() => audioEngine.playRogerBeep());
+                        } else {
+                          audioEngine.playRogerBeep();
+                        }
                       }}
                       className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-[10px] font-medium flex items-center gap-1 transition-colors"
-                      title="Replay Voice"
+                      title="Replay Tone"
                     >
                       <Play className="w-3 h-3 text-emerald-400" />
                       <span>Replay</span>

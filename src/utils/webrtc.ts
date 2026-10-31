@@ -2,7 +2,8 @@ import { Peer, DataConnection, MediaConnection } from 'peerjs';
 import { BroadcastMessage } from '../types';
 
 type MessageHandler = (msg: BroadcastMessage) => void;
-type CallHandler = (senderPin: string, stream: MediaStream) => void;
+type CallHandler = (senderPin: string, stream: MediaStream, call: MediaConnection) => void;
+type CallEndHandler = () => void;
 
 class WalkieP2P {
   private peer: Peer | null = null;
@@ -11,6 +12,7 @@ class WalkieP2P {
   private activeMediaCall: MediaConnection | null = null;
   private messageListeners: Set<MessageHandler> = new Set();
   private callListeners: Set<CallHandler> = new Set();
+  private callEndListeners: Set<CallEndHandler> = new Set();
   public isConnected: boolean = false;
 
   init(myPin: string) {
@@ -21,6 +23,15 @@ class WalkieP2P {
     try {
       this.peer = new Peer(peerId, {
         debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+          ],
+        },
       });
 
       this.peer.on('open', (id) => {
@@ -42,15 +53,17 @@ class WalkieP2P {
         call.answer();
 
         call.on('stream', (remoteStream) => {
-          this.callListeners.forEach((fn) => fn(callerPin, remoteStream));
+          this.callListeners.forEach((fn) => fn(callerPin, remoteStream, call));
         });
 
         call.on('close', () => {
           this.activeMediaCall = null;
+          this.callEndListeners.forEach((fn) => fn());
         });
 
         call.on('error', () => {
           this.activeMediaCall = null;
+          this.callEndListeners.forEach((fn) => fn());
         });
       });
 
@@ -143,6 +156,13 @@ class WalkieP2P {
     this.callListeners.add(listener);
     return () => {
       this.callListeners.delete(listener);
+    };
+  }
+
+  onCallEnd(listener: CallEndHandler) {
+    this.callEndListeners.add(listener);
+    return () => {
+      this.callEndListeners.delete(listener);
     };
   }
 }

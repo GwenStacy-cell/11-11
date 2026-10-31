@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Friend, VoiceFilter, TransmissionLog, BroadcastMessage, UserProfile } from './types';
-import { INITIAL_FRIENDS, DEFAULT_VOICE_RESPONSES, FUN_VOICE_RESPONSES } from './data/mockData';
+import { Friend, VoiceFilter, TransmissionLog, BroadcastMessage, UserProfile, FriendRequest } from './types';
+import { INITIAL_FRIENDS } from './data/mockData';
 import { audioEngine } from './utils/audioEffects';
 import { walkieBroadcast } from './utils/broadcast';
 import { walkieP2P } from './utils/webrtc';
@@ -69,6 +69,24 @@ export default function App() {
       setActiveThemeId(newProfile.themeId);
       localStorage.setItem('tenten_active_theme', newProfile.themeId);
     }
+
+    // Broadcast real-time profile update (avatar & banner) to all walkie friends
+    const updateMsg: BroadcastMessage = {
+      type: 'profile-update',
+      senderPin: myPin,
+      senderName: newProfile.name,
+      profile: {
+        name: newProfile.name,
+        avatar: newProfile.avatar,
+        banner: newProfile.banner,
+        noteStatus: newProfile.noteStatus,
+        bio: newProfile.bio,
+        accentColor: newProfile.accentColor,
+      },
+      timestamp: Date.now(),
+    };
+    walkieBroadcast.send(updateMsg);
+    friends.forEach((f) => walkieP2P.sendToFriend(f.pin, updateMsg));
   };
 
   const handleSelectTheme = (themeId: ThemeId) => {
@@ -184,6 +202,154 @@ export default function App() {
       setIncomingSenderPin(null);
     }
   }, [incomingSenderPin, handleMuteFriend]);
+
+  // Incoming Friend Requests
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>(() => {
+    const saved = localStorage.getItem('tenten_friend_requests');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('tenten_friend_requests', JSON.stringify(incomingRequests));
+  }, [incomingRequests]);
+
+  // Send friend request by 4-digit PIN
+  const handleSendFriendRequest = useCallback(
+    (targetPin: string) => {
+      if (targetPin === myPin) return;
+
+      const reqMsg: BroadcastMessage = {
+        type: 'friend-request',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin,
+        profile: {
+          name: userProfile.name,
+          avatar: userProfile.avatar,
+          banner: userProfile.banner,
+          noteStatus: userProfile.noteStatus,
+          bio: userProfile.bio,
+          accentColor: userProfile.accentColor,
+        },
+        timestamp: Date.now(),
+      };
+
+      walkieBroadcast.send(reqMsg);
+      walkieP2P.sendToFriend(targetPin, reqMsg);
+
+      // Add to circle with pending status
+      setFriends((prev) => {
+        if (prev.some((f) => f.pin === targetPin)) return prev;
+        const pendingFriend: Friend = {
+          id: 'f-' + targetPin,
+          name: `PIN #${targetPin}`,
+          realName: `PIN #${targetPin}`,
+          pin: targetPin,
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+          statusText: 'Connection request sent · Waiting for accept...',
+          onlineStatus: 'offline',
+          lastActive: 'Requested',
+          accentColor: '#f59e0b',
+          isPending: true,
+        };
+        const updated = [pendingFriend, ...prev];
+        localStorage.setItem('tenten_friends', JSON.stringify(updated));
+        return updated;
+      });
+    },
+    [myPin, userProfile]
+  );
+
+  // Accept incoming friend request
+  const handleAcceptFriendRequest = useCallback(
+    (req: FriendRequest) => {
+      const confirmedFriend: Friend = {
+        id: 'f-' + req.pin,
+        name: req.name, // The real name they kept!
+        realName: req.name,
+        pin: req.pin,
+        avatar: req.avatar, // Their real gallery photo!
+        banner: req.banner, // Their real gallery banner!
+        noteStatus: req.noteStatus,
+        bio: req.bio,
+        statusText: req.noteStatus || `Connected on 11:11 via PIN #${req.pin}`,
+        onlineStatus: 'online',
+        lastActive: 'Just now',
+        accentColor: req.accentColor || '#f59e0b',
+        isPending: false,
+      };
+
+      setFriends((prev) => {
+        const filtered = prev.filter((f) => f.pin !== req.pin);
+        const updated = [confirmedFriend, ...filtered];
+        localStorage.setItem('tenten_friends', JSON.stringify(updated));
+        return updated;
+      });
+
+      setActiveFriend(confirmedFriend);
+      setIncomingRequests((prev) => prev.filter((r) => r.pin !== req.pin));
+
+      // Send accept reply with my real profile
+      const acceptMsg: BroadcastMessage = {
+        type: 'friend-accept',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin: req.pin,
+        profile: {
+          name: userProfile.name,
+          avatar: userProfile.avatar,
+          banner: userProfile.banner,
+          noteStatus: userProfile.noteStatus,
+          bio: userProfile.bio,
+          accentColor: userProfile.accentColor,
+        },
+        timestamp: Date.now(),
+      };
+      walkieBroadcast.send(acceptMsg);
+      walkieP2P.sendToFriend(req.pin, acceptMsg);
+
+      audioEngine.playPokeSound();
+    },
+    [myPin, userProfile]
+  );
+
+  // Decline incoming friend request
+  const handleDeclineFriendRequest = useCallback(
+    (pin: string) => {
+      setIncomingRequests((prev) => prev.filter((r) => r.pin !== pin));
+      const declineMsg: BroadcastMessage = {
+        type: 'friend-decline',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin: pin,
+        timestamp: Date.now(),
+      };
+      walkieBroadcast.send(declineMsg);
+      walkieP2P.sendToFriend(pin, declineMsg);
+    },
+    [myPin, userProfile.name]
+  );
+
+  // Rename friend / set custom nickname
+  const handleRenameFriend = useCallback((id: string, newNickname: string) => {
+    setFriends((prev) => {
+      const updated = prev.map((f) => {
+        if (f.id === id) {
+          const finalName = newNickname.trim() || f.realName || f.name;
+          return { ...f, name: finalName };
+        }
+        return f;
+      });
+      localStorage.setItem('tenten_friends', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   // Dynamic state refs for async listeners
   const blockedPinsRef = useRef(blockedPins);
@@ -455,6 +621,106 @@ export default function App() {
             ...prev,
           ]);
         }
+      } else if (msg.type === 'friend-request') {
+        const senderProfile = msg.profile;
+        const senderName = senderProfile?.name || msg.senderName || `User #${msg.senderPin}`;
+        const newReq: FriendRequest = {
+          pin: msg.senderPin,
+          name: senderName,
+          avatar: senderProfile?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+          banner: senderProfile?.banner,
+          noteStatus: senderProfile?.noteStatus,
+          bio: senderProfile?.bio,
+          accentColor: senderProfile?.accentColor || '#f59e0b',
+          timestamp: Date.now(),
+        };
+
+        setIncomingRequests((prev) => [newReq, ...prev.filter((r) => r.pin !== msg.senderPin)]);
+        audioEngine.playPokeSound();
+
+        if ('Notification' in window && Notification.permission === 'granted') {
+          try {
+            new Notification(`Friend Request: ${senderName}`, {
+              body: `User #${msg.senderPin} wants to connect with you on 11:11! Tap to accept.`,
+              tag: 'tenten-friend-request',
+              icon: newReq.avatar || '/pwa-192x192.png',
+            });
+          } catch {}
+        }
+      } else if (msg.type === 'friend-accept') {
+        const friendProfile = msg.profile;
+        const friendName = friendProfile?.name || msg.senderName || `User #${msg.senderPin}`;
+        const newFriend: Friend = {
+          id: 'f-' + msg.senderPin,
+          name: friendName,
+          realName: friendName,
+          pin: msg.senderPin,
+          avatar: friendProfile?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+          banner: friendProfile?.banner,
+          noteStatus: friendProfile?.noteStatus,
+          bio: friendProfile?.bio,
+          statusText: friendProfile?.noteStatus || `Connected on 11:11 via PIN #${msg.senderPin}`,
+          onlineStatus: 'online',
+          lastActive: 'Just now',
+          accentColor: friendProfile?.accentColor || '#f59e0b',
+          isPending: false,
+        };
+
+        setFriends((prev) => {
+          const filtered = prev.filter((f) => f.pin !== msg.senderPin);
+          const updated = [newFriend, ...filtered];
+          localStorage.setItem('tenten_friends', JSON.stringify(updated));
+          return updated;
+        });
+
+        setActiveFriend(newFriend);
+        audioEngine.playPokeSound();
+
+        if ('Notification' in window && Notification.permission === 'granted') {
+          try {
+            new Notification(`${friendName} accepted your friend request!`, {
+              body: 'You are now connected! Hold the PTT button to talk live.',
+              tag: 'tenten-friend-accepted',
+              icon: newFriend.avatar || '/pwa-192x192.png',
+            });
+          } catch {}
+        }
+      } else if (msg.type === 'profile-update' && msg.profile) {
+        const updatedProfile = msg.profile;
+        setFriends((prev) => {
+          const updated = prev.map((f) => {
+            if (f.pin === msg.senderPin) {
+              const keepCustomNickname = f.realName && f.name !== f.realName;
+              return {
+                ...f,
+                name: keepCustomNickname ? f.name : updatedProfile.name,
+                realName: updatedProfile.name,
+                avatar: updatedProfile.avatar || f.avatar,
+                banner: updatedProfile.banner || f.banner,
+                noteStatus: updatedProfile.noteStatus,
+                bio: updatedProfile.bio,
+                statusText: updatedProfile.noteStatus || f.statusText,
+              };
+            }
+            return f;
+          });
+          localStorage.setItem('tenten_friends', JSON.stringify(updated));
+          return updated;
+        });
+      } else if (msg.type === 'friend-decline') {
+        setFriends((prev) => {
+          const updated = prev.map((f) => {
+            if (f.pin === msg.senderPin && f.isPending) {
+              return {
+                ...f,
+                statusText: 'Connection request declined',
+              };
+            }
+            return f;
+          });
+          localStorage.setItem('tenten_friends', JSON.stringify(updated));
+          return updated;
+        });
       }
     },
     [myPin, voiceFilter, showSpeakerNotification]
@@ -494,10 +760,18 @@ export default function App() {
       }
     });
 
+    const unsubCallEnd = walkieP2P.onCallEnd(() => {
+      audioEngine.stopLiveStream();
+      setIsReceiving(false);
+      setIncomingSender(null);
+      setIncomingSenderPin(null);
+    });
+
     return () => {
       unsubBroadcast();
       unsubP2P();
       unsubCall();
+      unsubCallEnd();
     };
   }, [handleIncomingMessage, showSpeakerNotification]);
 
@@ -562,49 +836,6 @@ export default function App() {
       setTransmissionDuration((prev) => prev + 1);
     }, 1000);
   }, [isTransmitting, isReceiving, myPin, userProfile.name, activeFriend, requestMicAccess]);
-
-  // Trigger friend speech banter (for solo testing)
-  const triggerFriendBanter = useCallback(
-    (friendName?: string, customQuote?: string) => {
-      if (isDnd) return;
-
-      const targetName = friendName || (activeFriend ? activeFriend.name : 'Friend');
-      const quotes =
-        (FUN_VOICE_RESPONSES && FUN_VOICE_RESPONSES[targetName]) || DEFAULT_VOICE_RESPONSES;
-      const textToSpeak = customQuote || quotes[Math.floor(Math.random() * quotes.length)];
-      const friendObj = friends.find((f) => f.name === targetName) || activeFriend;
-
-      setIsReceiving(true);
-      setIncomingSender(targetName);
-      setIncomingText(textToSpeak);
-
-      audioEngine.speakRadioVoice(
-        textToSpeak,
-        friendObj?.genderVoice || 'female',
-        () => {},
-        () => {
-          setIsReceiving(false);
-          setIncomingSender(null);
-          setIncomingText(null);
-
-          setLogs((prev) => [
-            {
-              id: 'log-' + Date.now(),
-              senderName: targetName,
-              senderPin: friendObj ? friendObj.pin : '1111',
-              isSelf: false,
-              timestamp: new Date(),
-              durationSec: 3,
-              transcript: textToSpeak,
-              type: 'voice',
-            },
-            ...prev,
-          ]);
-        }
-      );
-    },
-    [isDnd, activeFriend, friends]
-  );
 
   // PTT Stop (Sends real recorded audio over WebRTC & BroadcastChannel)
   const handlePttStop = useCallback(() => {
@@ -681,16 +912,6 @@ export default function App() {
       },
       ...prev,
     ]);
-
-    // Simulated banter reply if friend is active (fallback when testing solo)
-    if (activeFriend && !isDnd) {
-      const shouldReply = Math.random() > 0.6;
-      if (shouldReply) {
-        setTimeout(() => {
-          triggerFriendBanter(activeFriend.name);
-        }, 1500);
-      }
-    }
   }, [
     isTransmitting,
     isLockedOnAir,
@@ -698,8 +919,6 @@ export default function App() {
     myPin,
     userProfile.name,
     activeFriend,
-    isDnd,
-    triggerFriendBanter,
   ]);
 
   // Toggle Hands-Free Locked Mode
@@ -746,27 +965,6 @@ export default function App() {
       },
       ...prev,
     ]);
-
-    // Friend pokes back if active friend is selected
-    if (activeFriend && !isDnd) {
-      setTimeout(() => {
-        audioEngine.playPokeSound();
-        triggerScreenShake();
-        setLogs((prev) => [
-          {
-            id: 'log-' + Date.now(),
-            senderName: activeFriend.name,
-            senderPin: activeFriend.pin,
-            isSelf: false,
-            timestamp: new Date(),
-            durationSec: 1,
-            transcript: `${activeFriend.name} poked you back!`,
-            type: 'poke',
-          },
-          ...prev,
-        ]);
-      }, 1200);
-    }
   };
 
   // Soundboard broadcast
@@ -798,25 +996,6 @@ export default function App() {
       },
       ...prev,
     ]);
-  };
-
-  // Add friend
-  const handleAddFriend = (name: string, pin: string) => {
-    const colors = ['#ec4899', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
-    const randomColor = colors[Math.floor(Math.random() * colors.length)];
-    const newFriend: Friend = {
-      id: 'f-' + Date.now(),
-      name,
-      pin,
-      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
-      statusText: 'Connected on 11:11 via PIN #' + pin,
-      onlineStatus: 'online',
-      lastActive: 'Just now',
-      accentColor: randomColor,
-      genderVoice: Math.random() > 0.5 ? 'female' : 'male',
-    };
-    setFriends((prev) => [newFriend, ...prev]);
-    setActiveFriend(newFriend);
   };
 
   // Delete friend
@@ -862,7 +1041,7 @@ export default function App() {
     };
   }, [isTransmitting, isLockedOnAir, activeFriend, handlePttStart, handlePttStop]);
 
-  const currentBlurredAvatar = activeFriend ? activeFriend.avatar : userProfile.avatar;
+  const currentBlurredAvatar = activeFriend?.banner || activeFriend?.avatar || userProfile.avatar;
   const currentBlurredName = activeFriend ? activeFriend.name : userProfile.name;
   const isAirActive = isTransmitting || isReceiving || isLockedOnAir;
 
@@ -872,7 +1051,7 @@ export default function App() {
         screenShake ? 'animate-shake' : ''
       }`}
     >
-      {/* Full-Screen Ambient Avatar Backdrop */}
+      {/* Full-Screen Ambient Avatar / Banner Backdrop */}
       <div
         className={`fixed inset-0 overflow-hidden pointer-events-none z-0 transition-opacity duration-500 ease-out ${
           isAirActive ? 'opacity-100' : 'opacity-0'
@@ -907,7 +1086,6 @@ export default function App() {
           onPttStop={handlePttStop}
           onToggleLockOnAir={handleToggleLockOnAir}
           onSendPoke={handleSendPoke}
-          onTriggerFriendReply={() => triggerFriendBanter(activeFriend?.name)}
           onOpenSoundboard={() => setIsSoundboardOpen(true)}
           onOpenFriendManager={() => setIsFriendManagerOpen(true)}
           onOpenAbout={() => setIsAboutOpen(true)}
@@ -937,6 +1115,10 @@ export default function App() {
           onBlockFriend={handleBlockPin}
           onUnblockFriend={handleUnblockPin}
           onMuteCurrentSender={handleMuteCurrentSender}
+          onRenameFriend={handleRenameFriend}
+          incomingRequests={incomingRequests}
+          onAcceptRequest={handleAcceptFriendRequest}
+          onDeclineRequest={handleDeclineFriendRequest}
         />
       </main>
 
@@ -987,7 +1169,7 @@ export default function App() {
       <AddLockScreenModal
         isOpen={isLockScreenGuideOpen}
         onClose={() => setIsLockScreenGuideOpen(false)}
-        onTriggerTestAudio={() => triggerFriendBanter(activeFriend?.name)}
+        onTriggerTestAudio={() => audioEngine.playRogerBeep()}
         onInstallPwa={install}
         isInstallable={isInstallable}
       />
@@ -998,13 +1180,17 @@ export default function App() {
         onClose={() => setIsFriendManagerOpen(false)}
         myPin={myPin}
         friends={friends}
-        onAddFriend={handleAddFriend}
+        onAddFriendByPin={handleSendFriendRequest}
         onDeleteFriend={handleDeleteFriend}
         onSelectFriend={setActiveFriend}
         activeFriendId={activeFriend?.id}
         onOpenQrCode={handleOpenQrCode}
         blockedPins={blockedPins}
         onToggleBlockPin={handleToggleBlockPin}
+        incomingRequests={incomingRequests}
+        onAcceptRequest={handleAcceptFriendRequest}
+        onDeclineRequest={handleDeclineFriendRequest}
+        onRenameFriend={handleRenameFriend}
       />
 
       {/* QR Code Modal */}
@@ -1013,7 +1199,7 @@ export default function App() {
         onClose={() => setIsQrModalOpen(false)}
         myPin={myPin}
         userName={userProfile.name}
-        onAddFriend={handleAddFriend}
+        onAddFriend={(_name, pin) => handleSendFriendRequest(pin)}
         targetFriend={qrTargetFriend}
       />
 
