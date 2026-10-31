@@ -14,7 +14,8 @@ import {
   ShieldAlert,
   Palette,
   Ban,
-  UserCheck
+  UserCheck,
+  Download
 } from 'lucide-react';
 import { UserProfile, VoiceFilter, AppTheme, ThemeId, Friend } from '../types';
 import { THEMES } from '../data/themes';
@@ -41,6 +42,7 @@ interface SettingsModalProps {
   friends: Friend[];
   onBlockPin: (pin: string) => void;
   onUnblockPin: (pin: string) => void;
+  onOpenInstallModal?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -64,6 +66,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   friends = [],
   onBlockPin,
   onUnblockPin,
+  onOpenInstallModal,
 }) => {
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const bannerInputRef = useRef<HTMLInputElement | null>(null);
@@ -172,16 +175,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span className="text-[10px] text-zinc-400 font-mono">PIN #{myPin}</span>
             </div>
 
-            <div className="flex items-center gap-3.5 mb-3.5">
-              <img
-                src={userProfile.avatar}
-                alt={userProfile.name}
-                referrerPolicy="no-referrer"
-                className="w-14 h-14 rounded-full object-cover border-2 border-amber-500 shadow-md"
-              />
-              <div className="flex-1">
-                <div className="text-xs font-bold text-white">{userProfile.name}</div>
-                <div className="text-[11px] text-zinc-400 truncate">{userProfile.noteStatus}</div>
+            {/* Discord-style Banner & Avatar Preview */}
+            <div className="rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 mb-3.5 shadow-md">
+              <div
+                className="h-20 w-full relative transition-all"
+                style={{
+                  background: userProfile.banner,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/85 via-transparent to-transparent" />
+              </div>
+              <div className="px-3 pb-3 flex items-start gap-3 -mt-6 relative">
+                <img
+                  src={userProfile.avatar}
+                  alt={userProfile.name}
+                  referrerPolicy="no-referrer"
+                  className="w-13 h-13 rounded-full object-cover border-3 border-zinc-950 shadow-md shrink-0"
+                  style={{ outline: `2px solid ${userProfile.accentColor || '#f59e0b'}` }}
+                />
+                <div className="flex-1 pt-1.5 min-w-0">
+                  <div className="text-xs font-bold text-white truncate">{userProfile.name}</div>
+                  <div className="text-[11px] text-amber-300 truncate">{userProfile.noteStatus}</div>
+                </div>
               </div>
             </div>
 
@@ -384,24 +401,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Section 6: Mobile & Lock Screen */}
           <div className="p-4 bg-zinc-950/70 border border-zinc-800 rounded-2xl space-y-2.5">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-purple-400" />
-              <span>Mobile & Lock Screen Integration</span>
+            <div className="text-xs font-bold text-white flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Smartphone className="w-4 h-4 text-purple-400" />
+                <span>Mobile & Lock Screen Integration</span>
+              </div>
+              <span className="text-[10px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                Vercel PWA
+              </span>
             </div>
 
-            <button
-              onClick={() => {
-                onClose();
-                onOpenLockScreenGuide();
-              }}
-              className="w-full py-2.5 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded-xl text-xs font-semibold text-white flex items-center justify-between transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-amber-400" />
-                <span>Add 11:11 as Lock Screen / Home App</span>
-              </div>
-              <span className="text-amber-400 text-xs">Setup →</span>
-            </button>
+            <p className="text-[11px] text-zinc-400 leading-relaxed">
+              Download 11:11 directly to your phone to hear live speech even when the screen is locked!
+            </p>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {onOpenInstallModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenInstallModal();
+                  }}
+                  className="py-2.5 px-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-zinc-950 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-zinc-950" />
+                  <span>Download App</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenLockScreenGuide();
+                }}
+                className="py-2.5 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-purple-400" />
+                <span>Lock Screen</span>
+              </button>
+            </div>
 
             <button
               onClick={onRequestMic}

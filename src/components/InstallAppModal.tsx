@@ -1,6 +1,20 @@
 import React, { useState } from 'react';
-import { X, Smartphone, Share2, Check, ExternalLink, ShieldCheck, Copy, PlusSquare, Share } from 'lucide-react';
+import {
+  X,
+  Smartphone,
+  Share2,
+  Check,
+  ShieldCheck,
+  Copy,
+  PlusSquare,
+  Share,
+  Download,
+  Zap,
+  CheckCircle2,
+  Sparkles,
+} from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { audioEngine } from '../utils/audioEffects';
 
 interface InstallAppModalProps {
   isOpen: boolean;
@@ -12,10 +26,35 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeTab, setActiveTab] = useState<'install' | 'share'>('install');
+  const [downloadTriggered, setDownloadTriggered] = useState(false);
 
   if (!isOpen) return null;
 
   const currentUrl = window.location.href;
+
+  const handleDownloadAndInstall = async () => {
+    audioEngine.playPokeSound();
+    setDownloadTriggered(true);
+
+    if (isInstallable) {
+      try {
+        const success = await install();
+        if (success) {
+          onClose();
+          return;
+        }
+      } catch (err) {
+        console.warn('Install prompt error:', err);
+      }
+    }
+
+    if (isIOS) {
+      alert('To install directly on iPhone: Tap the Share button at the bottom of Safari, then choose "Add to Home Screen".');
+    } else {
+      // Android / Chrome
+      alert('To install directly on Android: Tap Chrome menu (three dots ⋮) at top right, then choose "Install app" or "Add to Home screen".');
+    }
+  };
 
   const handleCopyLink = async () => {
     try {
@@ -24,6 +63,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
       );
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2000);
+      audioEngine.playPokeSound();
     } catch {
       // fallback
     }
@@ -53,16 +93,16 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
         <div className="p-5 bg-gradient-to-br from-zinc-900 via-zinc-900 to-amber-950/40 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500 flex items-center justify-center font-black text-black shadow-lg shadow-amber-500/20">
-              <Smartphone className="w-5 h-5 text-black" />
+              <Download className="w-5 h-5 text-black" />
             </div>
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Install 11:11 Walkie</span>
-                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  PWA
+                <span>Download 11:11 Walkie</span>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  Vercel Live
                 </span>
               </h2>
-              <p className="text-xs text-zinc-400">Install to your mobile home screen & lock screen</p>
+              <p className="text-xs text-zinc-400">Download directly to your phone & lock screen</p>
             </div>
           </div>
           <button
@@ -83,8 +123,8 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Install App</span>
+            <Download className="w-3.5 h-3.5" />
+            <span>Download App</span>
           </button>
           <button
             onClick={() => setActiveTab('share')}
@@ -110,30 +150,47 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
                   <div>
                     <h4 className="text-sm font-bold text-emerald-300">App Already Installed!</h4>
                     <p className="text-xs text-zinc-300 mt-1 leading-relaxed">
-                      You are running <strong>11:11 Live Walkie</strong> in standalone mode. Transmissions play out loud through your speaker even when locked!
+                      You are running <strong>11:11 Live Walkie</strong> in standalone mode. Incoming voice plays aloud directly through your phone speaker even when screen is locked!
                     </p>
                   </div>
                 </div>
-              ) : isInstallable ? (
-                <div className="p-5 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl text-center space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-500 text-black font-black flex items-center justify-center mx-auto shadow-xl shadow-amber-500/30">
-                    <Smartphone className="w-6 h-6 text-black" />
+              ) : (
+                /* Primary Direct Download Box from Vercel */
+                <div className="p-5 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-transparent border border-amber-500/40 rounded-3xl text-center space-y-3.5 shadow-xl">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-black font-black flex items-center justify-center mx-auto shadow-xl shadow-amber-500/30">
+                    <Download className="w-6 h-6 text-black" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-white">Instant 1-Tap App Install</h3>
-                    <p className="text-xs text-zinc-300 mt-1">
-                      Install 11:11 directly to your Home Screen without needing an app store!
+                    <div className="flex items-center justify-center gap-2">
+                      <h3 className="text-base font-extrabold text-white">Direct Vercel App Download</h3>
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                        Vercel PWA
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-300 mt-1.5 max-w-xs mx-auto leading-relaxed">
+                      Download and install 11:11 directly from Vercel to your home screen with zero app store hassle!
                     </p>
                   </div>
+
                   <button
-                    onClick={install}
-                    className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-zinc-950 font-extrabold text-sm shadow-xl shadow-amber-500/25 flex items-center justify-center gap-2 transition-all transform active:scale-98"
+                    onClick={handleDownloadAndInstall}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-zinc-950 font-black text-sm shadow-xl shadow-amber-500/30 flex items-center justify-center gap-2 transition-all transform active:scale-98 cursor-pointer"
                   >
-                    <Smartphone className="w-4.5 h-4.5" />
-                    <span>Install 11:11 App</span>
+                    <Download className="w-4.5 h-4.5 text-zinc-950" />
+                    <span>Download / Install 11:11 App</span>
                   </button>
+
+                  <div className="flex items-center justify-center gap-3 text-[11px] text-zinc-400 pt-1">
+                    <span className="flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" /> Instant Install
+                    </span>
+                    <span>·</span>
+                    <span className="flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> 100% Free & Safe
+                    </span>
+                  </div>
                 </div>
-              ) : null}
+              )}
 
               {/* iOS Manual Step Card */}
               {isIOS && !isInstalled && (
@@ -142,10 +199,11 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
                     <span className="w-6 h-6 rounded-lg bg-zinc-800 flex items-center justify-center text-[11px]">🍎</span>
                     <span>Install on iPhone (Safari)</span>
                   </div>
-                  <ol className="text-xs text-zinc-300 space-y-1.5 list-decimal list-inside pl-1">
-                    <li>Tap the <strong>Share</strong> button <Share className="w-3.5 h-3.5 inline text-amber-400" /> at the bottom of Safari.</li>
-                    <li>Scroll down and select <strong>Add to Home Screen</strong> <PlusSquare className="w-3.5 h-3.5 inline text-emerald-400" />.</li>
+                  <ol className="text-xs text-zinc-300 space-y-2 list-decimal list-inside pl-1">
+                    <li>Tap the <strong>Share</strong> button <Share className="w-3.5 h-3.5 inline text-amber-400 mx-0.5" /> at the bottom of Safari.</li>
+                    <li>Scroll down and select <strong>Add to Home Screen</strong> <PlusSquare className="w-3.5 h-3.5 inline text-emerald-400 mx-0.5" />.</li>
                     <li>Tap <strong>Add</strong> in the top right corner.</li>
+                    <li>Open 11:11 from your home screen — audio will play continuously even when your phone is locked!</li>
                   </ol>
                 </div>
               )}
@@ -155,12 +213,13 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
                 <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl space-y-2.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-white">
                     <span className="w-6 h-6 rounded-lg bg-zinc-800 flex items-center justify-center text-[11px]">🤖</span>
-                    <span>Install on Android (Chrome)</span>
+                    <span>Install on Android (Chrome / Samsung)</span>
                   </div>
-                  <ol className="text-xs text-zinc-300 space-y-1.5 list-decimal list-inside pl-1">
-                    <li>Tap the Chrome menu (<strong>⋮</strong> three dots) top right.</li>
+                  <ol className="text-xs text-zinc-300 space-y-2 list-decimal list-inside pl-1">
+                    <li>Tap the Chrome menu (<strong>⋮</strong> three dots) in the top right.</li>
                     <li>Select <strong>Add to Home screen</strong> or <strong>Install app</strong>.</li>
                     <li>Tap <strong>Install</strong> to confirm.</li>
+                    <li>11:11 will be added to your app drawer & home screen with lock screen widget!</li>
                   </ol>
                 </div>
               )}
@@ -180,7 +239,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
               <div className="flex gap-2">
                 <button
                   onClick={handleNativeShare}
-                  className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-md"
+                  className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-md cursor-pointer"
                 >
                   <Share2 className="w-4 h-4" />
                   <span>Share Invite Sheet</span>
@@ -188,7 +247,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
 
                 <button
                   onClick={handleCopyLink}
-                  className="py-3 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-zinc-700 transition-colors"
+                  className="py-3 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-zinc-700 transition-colors cursor-pointer"
                 >
                   {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                   <span>{copiedLink ? 'Copied!' : 'Copy Link'}</span>
@@ -202,7 +261,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
         <div className="p-4 border-t border-zinc-800 bg-zinc-950 flex justify-end">
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white transition"
+            className="px-5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white transition cursor-pointer"
           >
             Close
           </button>

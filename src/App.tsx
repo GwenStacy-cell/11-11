@@ -18,6 +18,7 @@ import { TransmissionHistoryModal } from './components/TransmissionHistoryModal'
 import { ProfileEditModal } from './components/ProfileEditModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AddLockScreenModal } from './components/AddLockScreenModal';
+import { InstallAppModal } from './components/InstallAppModal';
 import { QRCodeModal } from './components/QRCodeModal';
 import { THEMES, ThemeId } from './data/themes';
 
@@ -261,6 +262,7 @@ export default function App() {
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLockScreenGuideOpen, setIsLockScreenGuideOpen] = useState(false);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isFriendManagerOpen, setIsFriendManagerOpen] = useState(false);
   const [isSoundboardOpen, setIsSoundboardOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
@@ -930,6 +932,7 @@ export default function App() {
           onOpenProfileEdit={() => setIsProfileEditOpen(true)}
           activeTheme={activeTheme}
           onOpenQrCode={handleOpenQrCode}
+          onOpenInstallModal={() => setIsInstallModalOpen(true)}
           blockedPins={blockedPins}
           onBlockFriend={handleBlockPin}
           onUnblockFriend={handleUnblockPin}
@@ -959,6 +962,17 @@ export default function App() {
         friends={friends}
         onBlockPin={handleBlockPin}
         onUnblockPin={handleUnblockPin}
+        onOpenInstallModal={() => {
+          setIsSettingsOpen(false);
+          setIsInstallModalOpen(true);
+        }}
+      />
+
+      {/* Direct App Download / Install Modal */}
+      <InstallAppModal
+        isOpen={isInstallModalOpen}
+        onClose={() => setIsInstallModalOpen(false)}
+        myPin={myPin}
       />
 
       {/* Profile Edit Modal */}

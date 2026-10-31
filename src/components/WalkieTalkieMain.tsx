@@ -72,6 +72,18 @@ interface WalkieTalkieMainProps {
   onMuteCurrentSender?: () => void;
 }
 
+const getBannerStyle = (bannerStr: string) => {
+  if (!bannerStr) return 'linear-gradient(135deg, #f43f5e 0%, #f59e0b 100%)';
+  if (
+    bannerStr.startsWith('url(') ||
+    bannerStr.startsWith('linear-gradient') ||
+    bannerStr.startsWith('radial-gradient')
+  ) {
+    return bannerStr;
+  }
+  return `url("${bannerStr}") center/cover no-repeat`;
+};
+
 export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
   activeFriend,
   friends,
@@ -239,6 +251,18 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
                 />
               </div>
 
+              {/* Direct Download App Button (Vercel PWA) */}
+              {onOpenInstallModal && (
+                <button
+                  onClick={onOpenInstallModal}
+                  className="px-2.5 py-1.5 bg-gradient-to-r from-amber-500/25 via-orange-500/20 to-amber-500/25 hover:from-amber-500/40 hover:to-orange-500/35 text-amber-300 hover:text-amber-200 border border-amber-500/50 rounded-xl transition-all active:scale-95 shadow-sm shadow-amber-500/15 flex items-center gap-1.5 shrink-0"
+                  title="Download & Install App directly from Vercel"
+                >
+                  <Download className="w-4 h-4 text-amber-400" />
+                  <span className="text-[11px] font-black tracking-tight">Download</span>
+                </button>
+              )}
+
               {/* Share App */}
               <button
                 onClick={onShareApp}
@@ -281,7 +305,7 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
             </div>
           </div>
 
-          {/* User Profile Card */}
+          {/* User Profile Card (Discord-Style Profile Banner) */}
           <div
             className={`transition-opacity duration-300 ${
               isHolding ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -289,38 +313,64 @@ export const WalkieTalkieMain: React.FC<WalkieTalkieMainProps> = ({
           >
             <div
               onClick={onOpenProfileEdit}
-              className="relative rounded-2xl overflow-hidden border border-zinc-800/80 hover:border-zinc-700 bg-zinc-900/60 transition-all cursor-pointer group shadow-sm"
+              className="relative rounded-3xl overflow-hidden border border-zinc-800/90 hover:border-zinc-700 bg-zinc-900/90 transition-all cursor-pointer group shadow-xl"
             >
+              {/* Big Discord Profile Banner */}
               <div
-                className="h-9 w-full opacity-90 transition-all"
-                style={{ background: userProfile.banner }}
-              />
-              <div className="px-3 py-2 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="relative -mt-5">
-                    <img
-                      src={userProfile.avatar}
-                      alt={userProfile.name}
-                      referrerPolicy="no-referrer"
-                      className="w-9 h-9 rounded-full object-cover border-2 border-zinc-950 shadow-md"
-                      style={{ outline: `2px solid ${userProfile.accentColor}` }}
-                    />
-                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border border-zinc-950" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <span>{userProfile.name}</span>
-                      <span className="text-[9px] text-zinc-400 font-normal">· edit profile</span>
-                    </div>
-                    <div className="text-[11px] text-amber-300 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
-                      <span className="truncate max-w-[220px]">{userProfile.noteStatus}</span>
-                    </div>
-                  </div>
+                className="h-28 sm:h-36 w-full relative transition-all duration-300 overflow-hidden"
+                style={{
+                  background: getBannerStyle(userProfile.banner),
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }}
+              >
+                {/* Subtle dark gradient overlay at bottom for depth */}
+                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/90 via-zinc-950/25 to-black/30" />
+
+                {/* Floating Edit Badge (Discord Style) */}
+                <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-xl bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[11px] font-semibold border border-white/15 flex items-center gap-1.5 transition-all shadow-md group-hover:scale-105">
+                  <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Edit Profile</span>
+                </div>
+              </div>
+
+              {/* Profile Details Bar overlapping the banner bottom */}
+              <div className="px-4 pb-3.5 pt-0 relative flex items-start gap-3.5">
+                {/* Large Avatar overlapping bottom of banner */}
+                <div className="relative -mt-9 sm:-mt-11 shrink-0">
+                  <img
+                    src={userProfile.avatar}
+                    alt={userProfile.name}
+                    referrerPolicy="no-referrer"
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-4 border-zinc-950 shadow-2xl transition-transform group-hover:scale-105"
+                    style={{ outline: `2.5px solid ${userProfile.accentColor || '#f59e0b'}` }}
+                  />
+                  <span className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-zinc-950 shadow" />
                 </div>
 
-                <div className="p-1.5 rounded-lg bg-zinc-800/80 text-zinc-400 group-hover:text-white group-hover:bg-zinc-700 transition-colors">
-                  <Edit3 className="w-3.5 h-3.5" />
+                {/* Name, Note & Bio */}
+                <div className="flex-1 min-w-0 pt-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm sm:text-base font-extrabold text-white truncate">
+                        {userProfile.name}
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-zinc-800 text-amber-400 border border-amber-500/30 shrink-0">
+                        #{myPin}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-amber-300 font-medium flex items-center gap-1.5 mt-0.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">{userProfile.noteStatus}</span>
+                  </div>
+
+                  {userProfile.bio && (
+                    <div className="text-[11px] text-zinc-400 mt-1 line-clamp-1 leading-relaxed">
+                      {userProfile.bio}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
