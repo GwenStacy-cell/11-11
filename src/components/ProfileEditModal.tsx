@@ -48,6 +48,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   onSaveProfile,
 }) => {
   const [name, setName] = useState(userProfile.name);
+  const [age, setAge] = useState<number | undefined>(userProfile.age);
   const [avatar, setAvatar] = useState(userProfile.avatar);
   const [banner, setBanner] = useState(userProfile.banner);
   const [noteStatus, setNoteStatus] = useState(userProfile.noteStatus);
@@ -101,6 +102,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     onSaveProfile({
       ...userProfile,
       name: name.trim() || 'My Walkie',
+      age: age ? Number(age) : undefined,
       avatar: customAvatarUrl.trim() || avatar,
       banner,
       noteStatus: noteStatus.trim() || 'Available on 11:11',
@@ -285,19 +287,35 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             </div>
           </div>
 
-          {/* Name */}
-          <div>
-            <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
-              Display Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              maxLength={24}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Jordan"
-              className="w-full px-3 py-2 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-zinc-500"
-            />
+          {/* Nickname & Age Row */}
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="col-span-2">
+              <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                Nickname
+              </label>
+              <input
+                type="text"
+                value={name}
+                maxLength={24}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Jordan"
+                className="w-full px-3 py-2 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                Age
+              </label>
+              <input
+                type="number"
+                value={age || ''}
+                min={10}
+                max={99}
+                onChange={(e) => setAge(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                placeholder="Age"
+                className="w-full px-3 py-2 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 text-center"
+              />
+            </div>
           </div>
 
           {/* Live Note Status */}

@@ -4,15 +4,14 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Friend, VoiceFilter, TransmissionLog, BroadcastMessage, UserProfile, FriendRequest } from './types';
-import { INITIAL_FRIENDS } from './data/mockData';
+import { Friend, TransmissionLog, BroadcastMessage, UserProfile, FriendRequest, FoundUser } from './types';
 import { audioEngine } from './utils/audioEffects';
 import { walkieBroadcast } from './utils/broadcast';
 import { walkieP2P } from './utils/webrtc';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { WalkieTalkieMain } from './components/WalkieTalkieMain';
 import { FriendManagerModal } from './components/FriendManagerModal';
-import { SoundboardModal } from './components/SoundboardModal';
+import { OnboardingModal } from './components/OnboardingModal';
 import { AboutModal } from './components/AboutModal';
 import { TransmissionHistoryModal } from './components/TransmissionHistoryModal';
 import { ProfileEditModal } from './components/ProfileEditModal';
@@ -32,6 +31,11 @@ export default function App() {
     return generated;
   });
 
+  // Onboarding state
+  const [isOnboarded, setIsOnboarded] = useState(() => {
+    return !!localStorage.getItem('tenten_onboarded');
+  });
+
   // User Profile
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('tenten_user_profile');
@@ -46,11 +50,12 @@ export default function App() {
       name: 'You',
       pin: myPin,
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      banner: 'linear-gradient(135deg, #f43f5e 0%, #f59e0b 100%)',
+      banner: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 50%, #1e293b 100%)',
       noteStatus: '11:11 make a wish ✨',
       bio: 'Live on walkie channel 11:11',
-      accentColor: '#f59e0b',
-      themeId: 'amber',
+      age: 20,
+      accentColor: '#818cf8',
+      themeId: 'slate',
     };
   });
 
@@ -58,15 +63,28 @@ export default function App() {
   const [activeThemeId, setActiveThemeId] = useState<ThemeId>(() => {
     const saved = localStorage.getItem('tenten_active_theme') as ThemeId;
     if (saved && THEMES[saved]) return saved;
-    return (userProfile.themeId as ThemeId) || 'amber';
+    return (userProfile.themeId as ThemeId) || 'slate';
   });
 
-  const activeTheme = THEMES[activeThemeId] || THEMES.amber;
+  const activeTheme = THEMES[activeThemeId] || THEMES.slate;
+
+  const handleCompleteOnboarding = (profileData: Partial<UserProfile>) => {
+    const completeProfile: UserProfile = {
+      ...userProfile,
+      ...profileData,
+      pin: myPin,
+    };
+    setUserProfile(completeProfile);
+    localStorage.setItem('tenten_user_profile', JSON.stringify(completeProfile));
+    localStorage.setItem('tenten_onboarded', 'true');
+    setIsOnboarded(true);
+    audioEngine.playRogerBeep();
+  };
 
   const handleSaveProfile = (newProfile: UserProfile) => {
     setUserProfile(newProfile);
-    if (newProfile.themeId && THEMES[newProfile.themeId]) {
-      setActiveThemeId(newProfile.themeId);
+    if (newProfile.themeId && THEMES[newProfile.themeId as ThemeId]) {
+      setActiveThemeId(newProfile.themeId as ThemeId);
       localStorage.setItem('tenten_active_theme', newProfile.themeId);
     }
 
@@ -81,6 +99,7 @@ export default function App() {
         banner: newProfile.banner,
         noteStatus: newProfile.noteStatus,
         bio: newProfile.bio,
+        age: newProfile.age,
         accentColor: newProfile.accentColor,
       },
       timestamp: Date.now(),
@@ -122,7 +141,7 @@ export default function App() {
         return [];
       }
     }
-    return INITIAL_FRIENDS;
+    return [];
   });
 
   // Active Selected Friend
@@ -143,7 +162,6 @@ export default function App() {
   const [incomingSenderPin, setIncomingSenderPin] = useState<string | null>(null);
   const [incomingText, setIncomingText] = useState<string | null>(null);
   const [isDnd, setIsDnd] = useState(false);
-  const [voiceFilter, setVoiceFilter] = useState<VoiceFilter>('classic-walkie');
   const [transmissionDuration, setTransmissionDuration] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
   const [hasMicPermission, setHasMicPermission] = useState(false);
@@ -235,6 +253,7 @@ export default function App() {
           banner: userProfile.banner,
           noteStatus: userProfile.noteStatus,
           bio: userProfile.bio,
+          age: userProfile.age,
           accentColor: userProfile.accentColor,
         },
         timestamp: Date.now(),
@@ -292,6 +311,7 @@ export default function App() {
           banner: userProfile.banner,
           noteStatus: userProfile.noteStatus,
           bio: userProfile.bio,
+          age: userProfile.age,
           accentColor: userProfile.accentColor,
         },
         timestamp: Date.now(),
@@ -330,22 +350,53 @@ export default function App() {
     [friends, myPin, userProfile]
   );
 
+  // Real Search by 4-digit PIN (Instagram / Facebook logic: queries live network)
+  const handleSearchUser = useCallback(
+    async (pin: string): Promise<FoundUser | null> => {
+      const queryMsg: BroadcastMessage = {
+        type: 'profile-query',
+        senderPin: myPin,
+        senderName: userProfile.name,
+        targetPin: pin,
+        timestamp: Date.now(),
+      };
+      walkieBroadcast.send(queryMsg);
+
+      const result = await walkieP2P.checkUserExists(pin);
+      if (result.exists && result.profile) {
+        return {
+          pin,
+          name: result.profile.name || `User #${pin}`,
+          avatar: result.profile.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+          banner: result.profile.banner,
+          noteStatus: result.profile.noteStatus,
+          bio: result.profile.bio,
+          age: result.profile.age,
+          accentColor: result.profile.accentColor,
+        };
+      }
+      return null;
+    },
+    [myPin, userProfile.name]
+  );
+
   // Accept incoming friend request
   const handleAcceptFriendRequest = useCallback(
     (req: FriendRequest) => {
       const confirmedFriend: Friend = {
         id: 'f-' + req.pin,
-        name: req.name, // The real name they kept!
+        name: req.name,
         realName: req.name,
         pin: req.pin,
-        avatar: req.avatar, // Their real gallery photo!
-        banner: req.banner, // Their real gallery banner!
+        avatar: req.avatar,
+        banner: req.banner,
         noteStatus: req.noteStatus,
         bio: req.bio,
+        age: req.age,
         statusText: req.noteStatus || `Connected on 11:11 via PIN #${req.pin}`,
         onlineStatus: 'online',
         lastActive: 'Just now',
-        accentColor: req.accentColor || '#f59e0b',
+        accentColor: req.accentColor || '#818cf8',
         isPending: false,
       };
 
@@ -371,6 +422,7 @@ export default function App() {
           banner: userProfile.banner,
           noteStatus: userProfile.noteStatus,
           bio: userProfile.bio,
+          age: userProfile.age,
           accentColor: userProfile.accentColor,
         },
         timestamp: Date.now(),
@@ -628,7 +680,7 @@ export default function App() {
 
           audioEngine.playRecordedVoice(
             msg.audioData,
-            voiceFilter,
+            'crisp',
             () => {},
             () => {
               setIsReceiving(false);
@@ -685,6 +737,26 @@ export default function App() {
             ...prev,
           ]);
         }
+      } else if (msg.type === 'profile-query') {
+        if (msg.targetPin && msg.targetPin !== myPin) return;
+        const respMsg: BroadcastMessage = {
+          type: 'profile-response',
+          senderPin: myPin,
+          senderName: userProfile.name,
+          targetPin: msg.senderPin,
+          profile: {
+            name: userProfile.name,
+            avatar: userProfile.avatar,
+            banner: userProfile.banner,
+            noteStatus: userProfile.noteStatus,
+            bio: userProfile.bio,
+            age: userProfile.age,
+            accentColor: userProfile.accentColor,
+          },
+          timestamp: Date.now(),
+        };
+        walkieBroadcast.send(respMsg);
+        walkieP2P.sendToFriend(msg.senderPin, respMsg);
       } else if (msg.type === 'friend-request') {
         const senderProfile = msg.profile;
         const senderName = senderProfile?.name || msg.senderName || `User #${msg.senderPin}`;
@@ -700,6 +772,7 @@ export default function App() {
             banner: senderProfile?.banner || existingFriend.banner,
             noteStatus: senderProfile?.noteStatus || existingFriend.noteStatus,
             bio: senderProfile?.bio || existingFriend.bio,
+            age: senderProfile?.age,
             accentColor: senderProfile?.accentColor || existingFriend.accentColor,
             statusText: senderProfile?.noteStatus || 'Connected on 11:11',
             onlineStatus: 'online',
@@ -725,6 +798,7 @@ export default function App() {
               banner: userProfile.banner,
               noteStatus: userProfile.noteStatus,
               bio: userProfile.bio,
+              age: userProfile.age,
               accentColor: userProfile.accentColor,
             },
             timestamp: Date.now(),
@@ -742,7 +816,8 @@ export default function App() {
           banner: senderProfile?.banner,
           noteStatus: senderProfile?.noteStatus,
           bio: senderProfile?.bio,
-          accentColor: senderProfile?.accentColor || '#f59e0b',
+          age: senderProfile?.age,
+          accentColor: senderProfile?.accentColor || '#818cf8',
           timestamp: Date.now(),
         };
 
@@ -770,10 +845,11 @@ export default function App() {
           banner: friendProfile?.banner,
           noteStatus: friendProfile?.noteStatus,
           bio: friendProfile?.bio,
+          age: friendProfile?.age,
           statusText: friendProfile?.noteStatus || `Connected on 11:11 via PIN #${msg.senderPin}`,
           onlineStatus: 'online',
           lastActive: 'Just now',
-          accentColor: friendProfile?.accentColor || '#f59e0b',
+          accentColor: friendProfile?.accentColor || '#818cf8',
           isPending: false,
         };
 
@@ -850,7 +926,7 @@ export default function App() {
         audioEngine.playPokeSound();
       }
     },
-    [myPin, voiceFilter, showSpeakerNotification]
+    [myPin, showSpeakerNotification]
   );
 
   // Subscribe to BroadcastChannel & WebRTC
@@ -1233,31 +1309,20 @@ export default function App() {
           onPttStop={handlePttStop}
           onToggleLockOnAir={handleToggleLockOnAir}
           onSendPoke={handleSendPoke}
-          onOpenSoundboard={() => setIsSoundboardOpen(true)}
           onOpenFriendManager={() => setIsFriendManagerOpen(true)}
-          onOpenAbout={() => setIsAboutOpen(true)}
           onOpenHistory={() => setIsHistoryOpen(true)}
-          onOpenLockScreenGuide={() => setIsLockScreenGuideOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          onShareApp={handleShareApp}
           isDnd={isDnd}
           onToggleDnd={() => {
             setIsDnd(!isDnd);
             audioEngine.playPokeSound();
           }}
-          voiceFilter={voiceFilter}
-          onChangeVoiceFilter={setVoiceFilter}
           myPin={myPin}
-          hasMicPermission={hasMicPermission}
-          onRequestMic={requestMicAccess}
           transmissionDuration={transmissionDuration}
-          volume={volume}
-          onChangeVolume={handleVolumeChange}
           userProfile={userProfile}
           onOpenProfileEdit={() => setIsProfileEditOpen(true)}
           activeTheme={activeTheme}
           onOpenQrCode={handleOpenQrCode}
-          onOpenInstallModal={() => setIsInstallModalOpen(true)}
           blockedPins={blockedPins}
           onBlockFriend={handleBlockPin}
           onUnblockFriend={handleUnblockPin}
@@ -1271,6 +1336,13 @@ export default function App() {
         />
       </main>
 
+      {/* Onboarding Modal (Required for new downloads / first time users) */}
+      <OnboardingModal
+        isOpen={!isOnboarded}
+        onComplete={handleCompleteOnboarding}
+        myPin={myPin}
+      />
+
       {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -1278,14 +1350,11 @@ export default function App() {
         myPin={myPin}
         volume={volume}
         onChangeVolume={handleVolumeChange}
-        voiceFilter={voiceFilter}
-        onChangeVoiceFilter={setVoiceFilter}
         userProfile={userProfile}
         onSaveProfile={handleSaveProfile}
+        onOpenProfileEdit={() => setIsProfileEditOpen(true)}
         activeTheme={activeTheme}
         onSelectTheme={handleSelectTheme}
-        hasMicPermission={hasMicPermission}
-        onRequestMic={requestMicAccess}
         onOpenLockScreenGuide={() => setIsLockScreenGuideOpen(true)}
         onClearData={handleClearData}
         onShareApp={handleShareApp}
@@ -1323,13 +1392,14 @@ export default function App() {
         isInstallable={isInstallable}
       />
 
-      {/* Friend Manager Modal */}
+      {/* Friend Manager Modal with Real Social Search */}
       <FriendManagerModal
         isOpen={isFriendManagerOpen}
         onClose={() => setIsFriendManagerOpen(false)}
         myPin={myPin}
         friends={friends}
         onAddFriendByPin={handleSendFriendRequest}
+        onSearchUser={handleSearchUser}
         onDeleteFriend={handleDeleteFriend}
         onSelectFriend={setActiveFriend}
         activeFriendId={activeFriend?.id}
@@ -1342,7 +1412,7 @@ export default function App() {
         onRenameFriend={handleRenameFriend}
       />
 
-      {/* QR Code Modal */}
+      {/* QR Code Modal (Includes Share Button Inside) */}
       <QRCodeModal
         isOpen={isQrModalOpen}
         onClose={() => setIsQrModalOpen(false)}
@@ -1350,14 +1420,7 @@ export default function App() {
         userName={userProfile.name}
         onAddFriend={(_name, pin) => handleSendFriendRequest(pin)}
         targetFriend={qrTargetFriend}
-      />
-
-      {/* Soundboard Modal */}
-      <SoundboardModal
-        isOpen={isSoundboardOpen}
-        onClose={() => setIsSoundboardOpen(false)}
-        onBroadcastSound={handleBroadcastSound}
-        activeFriendName={activeFriend ? activeFriend.name : 'Friend'}
+        onShareApp={handleShareApp}
       />
 
       {/* About Modal */}

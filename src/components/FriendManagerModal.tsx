@@ -5,7 +5,6 @@ import {
   Check,
   UserPlus,
   Hash,
-  Shield,
   QrCode,
   Scan,
   Trash2,
@@ -16,10 +15,11 @@ import {
   XCircle,
   Edit2,
   Clock,
-  Sparkles,
   RotateCw,
+  Loader2,
+  UserCheck,
 } from 'lucide-react';
-import { Friend, FriendRequest } from '../types';
+import { Friend, FriendRequest, FoundUser } from '../types';
 import { audioEngine } from '../utils/audioEffects';
 
 interface FriendManagerModalProps {
@@ -28,6 +28,7 @@ interface FriendManagerModalProps {
   myPin: string;
   friends: Friend[];
   onAddFriendByPin: (pin: string) => void;
+  onSearchUser?: (pin: string) => Promise<FoundUser | null>;
   onDeleteFriend?: (id: string) => void;
   onSelectFriend: (friend: Friend) => void;
   activeFriendId?: string;
@@ -46,6 +47,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
   myPin,
   friends,
   onAddFriendByPin,
+  onSearchUser,
   onDeleteFriend,
   onSelectFriend,
   activeFriendId,
@@ -59,6 +61,8 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [searchPin, setSearchPin] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [foundUser, setFoundUser] = useState<FoundUser | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -73,37 +77,71 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const pin = searchPin.trim();
     if (!pin) {
       setErrorMsg('Please enter a 4-digit PIN code.');
+      setFoundUser(null);
       setSuccessMsg('');
       return;
     }
     if (pin === myPin) {
       setErrorMsg("You cannot add your own PIN code!");
+      setFoundUser(null);
       setSuccessMsg('');
       return;
     }
 
+    // Check if already in local friends list
     const existing = friends.find((f) => f.pin === pin);
     if (existing && !existing.isPending) {
-      onAddFriendByPin(pin);
       onSelectFriend(existing);
       setSearchPin('');
       setErrorMsg('');
-      setSuccessMsg(`Refreshed connection with ${existing.name} (#${pin})!`);
+      setFoundUser(null);
+      setSuccessMsg(`Switched to ${existing.name} (#${pin})!`);
       audioEngine.playPokeSound();
       setTimeout(() => setSuccessMsg(''), 4000);
       return;
     }
 
-    onAddFriendByPin(pin);
-    setSearchPin('');
+    // Real search (Instagram / Facebook logic: verify if user actually exists online)
+    setIsSearching(true);
     setErrorMsg('');
-    setSuccessMsg(`Connection request sent to PIN #${pin}! Waiting for them to accept...`);
+    setSuccessMsg('');
+    setFoundUser(null);
+
+    if (onSearchUser) {
+      try {
+        const result = await onSearchUser(pin);
+        setIsSearching(false);
+        if (result) {
+          setFoundUser(result);
+          audioEngine.playPokeSound();
+        } else {
+          setErrorMsg(`No active user found with PIN #${pin}. Check the PIN or make sure your friend has 11:11 open.`);
+        }
+      } catch {
+        setIsSearching(false);
+        setErrorMsg(`Failed to search for PIN #${pin}. Please try again.`);
+      }
+    } else {
+      setIsSearching(false);
+      onAddFriendByPin(pin);
+      setSearchPin('');
+      setSuccessMsg(`Connection request sent to PIN #${pin}!`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+    }
+  };
+
+  const handleSendFoundUserRequest = () => {
+    if (!foundUser) return;
+    onAddFriendByPin(foundUser.pin);
     audioEngine.playPokeSound();
+    setSuccessMsg(`Friend request sent to ${foundUser.name} (#${foundUser.pin})!`);
+    setFoundUser(null);
+    setSearchPin('');
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
@@ -127,12 +165,12 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-bold">
+            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold">
               <Hash className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Friends & PIN Search</h2>
-              <p className="text-xs text-zinc-400">Search by 4-digit PIN & manage walkie circle</p>
+              <p className="text-xs text-zinc-400">Search real users by PIN & manage circle</p>
             </div>
           </div>
 
@@ -144,17 +182,17 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
           </button>
         </div>
 
-        {/* My PIN card with QR Code button */}
-        <div className="mt-5 p-4 bg-gradient-to-br from-zinc-800/80 to-zinc-900 border border-zinc-700/60 rounded-2xl flex items-center justify-between">
+        {/* My PIN card */}
+        <div className="mt-5 p-4 bg-zinc-950/70 border border-zinc-800/80 rounded-2xl flex items-center justify-between">
           <div>
             <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-              Your Walkie PIN Code
+              Your Walkie PIN
             </div>
-            <div className="text-2xl font-black font-mono tracking-wider text-amber-400 mt-0.5">
+            <div className="text-2xl font-black font-mono tracking-wider text-indigo-400 mt-0.5">
               #{myPin}
             </div>
             <div className="text-[10px] text-zinc-400 mt-1">
-              Give your PIN to friends so they can add you
+              Give your PIN to friends so they can find you
             </div>
           </div>
 
@@ -162,7 +200,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
             {onOpenQrCode && (
               <button
                 onClick={() => onOpenQrCode()}
-                className="p-2 bg-zinc-800 hover:bg-zinc-700 text-amber-400 rounded-xl text-xs font-bold border border-zinc-700 flex items-center gap-1 transition-all active:scale-95 shadow-sm cursor-pointer"
+                className="p-2 bg-zinc-800 hover:bg-zinc-700 text-indigo-300 rounded-xl text-xs font-semibold border border-zinc-700 flex items-center gap-1 transition-all active:scale-95 shadow-sm cursor-pointer"
                 title="Show My QR Code"
               >
                 <QrCode className="w-4 h-4" />
@@ -172,12 +210,12 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
 
             <button
               onClick={handleCopyPin}
-              className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-amber-950/40 cursor-pointer"
+              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-indigo-950/40 cursor-pointer"
             >
               {copied ? (
                 <>
                   <Check className="w-3.5 h-3.5" />
-                  <span>Copied!</span>
+                  <span>Copied</span>
                 </>
               ) : (
                 <>
@@ -189,19 +227,19 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
           </div>
         </div>
 
-        {/* Search Bar: Add User by 4-digit PIN */}
-        <form onSubmit={handleSearchSubmit} className="mt-5 p-4 bg-zinc-800/40 rounded-2xl border border-zinc-800">
-          <div className="flex items-center justify-between mb-2.5">
+        {/* Search Bar: Real User Search by 4-digit PIN */}
+        <form onSubmit={handleSearchSubmit} className="mt-5 p-4 bg-zinc-950/60 rounded-2xl border border-zinc-800">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-              <Search className="w-4 h-4 text-amber-400" />
-              <span>Search Friend by PIN</span>
+              <Search className="w-4 h-4 text-indigo-400" />
+              <span>Search User by PIN</span>
             </div>
 
             {onOpenQrCode && (
               <button
                 type="button"
                 onClick={() => onOpenQrCode()}
-                className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
               >
                 <Scan className="w-3.5 h-3.5" />
                 <span>Scan QR</span>
@@ -210,7 +248,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
           </div>
 
           <p className="text-[11px] text-zinc-400 mb-3 leading-relaxed">
-            Enter your friend's 4-digit PIN code. When they accept, their real name, photo, and banner will sync automatically!
+            Search for an active user with their 4-digit PIN to view their profile and send an invite.
           </p>
 
           <div className="flex gap-2">
@@ -222,31 +260,110 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                 type="text"
                 maxLength={4}
                 value={searchPin}
-                onChange={(e) => setSearchPin(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => {
+                  setSearchPin(e.target.value.replace(/\D/g, ''));
+                  setErrorMsg('');
+                  setFoundUser(null);
+                }}
                 placeholder="e.g. 7419"
-                className="w-full pl-7 pr-3 py-2.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-500 placeholder-zinc-500"
+                className="w-full pl-7 pr-3 py-2.5 bg-zinc-900 border border-zinc-700/80 rounded-xl text-xs font-mono font-bold text-white focus:outline-none focus:border-indigo-500 placeholder-zinc-500"
               />
             </div>
 
             <button
               type="submit"
-              disabled={!searchPin.trim()}
-              className="py-2.5 px-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-zinc-950 font-extrabold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-md active:scale-95 disabled:opacity-40 cursor-pointer"
+              disabled={!searchPin.trim() || isSearching}
+              className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-md active:scale-95 disabled:opacity-40 cursor-pointer"
             >
-              <UserPlus className="w-4 h-4" />
-              <span>Send Request</span>
+              {isSearching ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Searching</span>
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4" />
+                  <span>Search</span>
+                </>
+              )}
             </button>
           </div>
 
-          {errorMsg && <div className="mt-2 text-[11px] font-medium text-rose-400">{errorMsg}</div>}
-          {successMsg && <div className="mt-2 text-[11px] font-medium text-emerald-400">{successMsg}</div>}
+          {errorMsg && (
+            <div className="mt-3 p-2.5 bg-rose-950/40 border border-rose-500/30 rounded-xl text-[11px] text-rose-300 flex items-center gap-1.5">
+              <XCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="mt-3 p-2.5 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-[11px] text-emerald-300 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          {/* Real User Found Card (Instagram / Facebook Style) */}
+          {foundUser && (
+            <div className="mt-4 p-4 rounded-2xl bg-zinc-900 border border-indigo-500/50 shadow-xl animate-in fade-in duration-200">
+              <div className="flex items-start gap-3">
+                <img
+                  src={foundUser.avatar}
+                  alt={foundUser.name}
+                  referrerPolicy="no-referrer"
+                  className="w-14 h-14 rounded-full object-cover border-2 border-indigo-500 shadow-md shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm font-bold text-white truncate">{foundUser.name}</span>
+                    {foundUser.age && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        {foundUser.age} yrs
+                      </span>
+                    )}
+                    <span className="text-[10px] font-mono text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                      #{foundUser.pin}
+                    </span>
+                  </div>
+                  <div className="text-xs text-indigo-300 font-medium mt-0.5 truncate">
+                    {foundUser.noteStatus || 'Available on 11:11'}
+                  </div>
+                  {foundUser.bio && (
+                    <div className="text-[11px] text-zinc-400 mt-1 line-clamp-2 leading-relaxed">
+                      {foundUser.bio}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-3.5 pt-3 border-t border-zinc-800 flex items-center justify-between">
+                {friends.some((f) => f.pin === foundUser.pin && !f.isPending) ? (
+                  <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4" /> Already connected in your circle
+                  </span>
+                ) : friends.some((f) => f.pin === foundUser.pin && f.isPending) ? (
+                  <span className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4" /> Friend request pending
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSendFoundUserRequest}
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>Send Friend Request</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </form>
 
         {/* Incoming Friend Requests Section */}
         {incomingRequests.length > 0 && (
-          <div className="mt-5 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-            <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5 mb-3">
-              <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
+          <div className="mt-5 p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl">
+            <div className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 mb-3">
               <span>Incoming Friend Requests ({incomingRequests.length})</span>
             </div>
 
@@ -254,18 +371,21 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
               {incomingRequests.map((req) => (
                 <div
                   key={req.pin}
-                  className="p-3 bg-zinc-900/90 border border-zinc-800 rounded-xl flex items-center justify-between gap-3 shadow-md"
+                  className="p-3 bg-zinc-950/90 border border-zinc-800 rounded-xl flex items-center justify-between gap-3 shadow-md"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <img
                       src={req.avatar}
                       alt={req.name}
                       referrerPolicy="no-referrer"
-                      className="w-10 h-10 rounded-full object-cover border-2 border-amber-500 shrink-0"
+                      className="w-10 h-10 rounded-full object-cover border-2 border-indigo-500 shrink-0"
                     />
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
                         <span>{req.name}</span>
+                        {req.age && (
+                          <span className="text-[10px] text-zinc-400">({req.age})</span>
+                        )}
                         <span className="text-[10px] font-mono text-zinc-400">#{req.pin}</span>
                       </div>
                       <div className="text-[10px] text-zinc-400 truncate">
@@ -312,7 +432,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
               </div>
               <div className="text-xs font-bold text-zinc-300">No friends in your circle yet</div>
               <p className="text-[11px] text-zinc-500 max-w-xs mx-auto mt-1 leading-relaxed">
-                Enter your friend's 4-digit PIN above to send a request, or share your own PIN to connect!
+                Enter your friend's 4-digit PIN above to search and connect!
               </p>
             </div>
           ) : (
@@ -326,7 +446,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                     key={f.id}
                     className={`p-3 rounded-2xl border transition-all flex flex-col gap-2 ${
                       isActive
-                        ? 'bg-zinc-800/90 border-emerald-500/60 shadow-lg shadow-emerald-950/30'
+                        ? 'bg-zinc-800/90 border-indigo-500/60 shadow-lg'
                         : 'bg-zinc-800/40 border-zinc-800 hover:bg-zinc-800/70'
                     }`}
                   >
@@ -348,7 +468,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                             alt={f.name}
                             referrerPolicy="no-referrer"
                             className="w-10 h-10 rounded-full object-cover border-2"
-                            style={{ borderColor: f.accentColor || '#f59e0b' }}
+                            style={{ borderColor: f.accentColor || '#818cf8' }}
                           />
                           {!f.isPending && (
                             <span
@@ -364,8 +484,11 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                         </div>
 
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs font-bold text-white truncate">{f.name}</span>
+                            {f.age && (
+                              <span className="text-[10px] text-zinc-400">({f.age})</span>
+                            )}
                             {f.realName && f.realName !== f.name && (
                               <span className="text-[10px] text-zinc-400 truncate">({f.realName})</span>
                             )}
@@ -402,10 +525,10 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                             audioEngine.playPokeSound();
                             setTimeout(() => setSuccessMsg(''), 3000);
                           }}
-                          className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                          className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-indigo-300 border border-zinc-700 transition-colors cursor-pointer"
                           title={`Refresh connection with ${f.name}`}
                         >
-                          <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                          <RotateCw className="w-3.5 h-3.5 text-indigo-400" />
                         </button>
 
                         {/* Rename / Nickname Button */}
@@ -413,7 +536,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                           <button
                             type="button"
                             onClick={() => startRenaming(f)}
-                            className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-indigo-300 border border-zinc-700 transition-colors cursor-pointer"
                             title="Rename friend / set nickname"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
@@ -427,7 +550,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                               e.stopPropagation();
                               onOpenQrCode({ name: f.name, pin: f.pin });
                             }}
-                            className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-indigo-300 border border-zinc-700 transition-colors cursor-pointer"
                             title={`Show ${f.name}'s QR Code`}
                           >
                             <QrCode className="w-3.5 h-3.5" />
@@ -444,7 +567,7 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                             className="cursor-pointer"
                           >
                             {isActive ? (
-                              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider px-2 py-1 bg-emerald-950/50 rounded-lg border border-emerald-500/30">
+                              <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider px-2 py-1 bg-indigo-950/70 rounded-lg border border-indigo-500/30">
                                 Active
                               </span>
                             ) : (
@@ -500,20 +623,20 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
                           placeholder="Enter nickname..."
-                          className="flex-1 px-3 py-1 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-none focus:border-amber-500"
+                          className="flex-1 px-3 py-1 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
                           autoFocus
                         />
                         <button
                           type="button"
                           onClick={() => handleSaveRename(f.id)}
-                          className="px-2.5 py-1 bg-amber-500 text-zinc-950 rounded-lg text-xs font-bold hover:bg-amber-400 transition-colors cursor-pointer"
+                          className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold cursor-pointer"
                         >
                           Save
                         </button>
                         <button
                           type="button"
                           onClick={() => setRenamingId(null)}
-                          className="px-2 py-1 bg-zinc-800 text-zinc-400 rounded-lg text-xs hover:text-white transition-colors cursor-pointer"
+                          className="px-2 py-1 bg-zinc-800 text-zinc-400 hover:text-white rounded-lg text-xs cursor-pointer"
                         >
                           Cancel
                         </button>
@@ -524,12 +647,6 @@ export const FriendManagerModal: React.FC<FriendManagerModalProps> = ({
               })}
             </div>
           )}
-        </div>
-
-        {/* Footer info */}
-        <div className="mt-5 text-[11px] text-zinc-500 text-center flex items-center justify-center gap-1">
-          <Shield className="w-3.5 h-3.5 text-zinc-400" />
-          <span>Real-time human-to-human walkie network. Zero bots or AI audio.</span>
         </div>
       </div>
     </div>

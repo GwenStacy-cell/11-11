@@ -165,6 +165,68 @@ class WalkieP2P {
       this.callEndListeners.delete(listener);
     };
   }
+
+  // Verify and query if a user with targetPin exists online
+  checkUserExists(targetPin: string, timeoutMs: number = 2800): Promise<{ exists: boolean; profile?: any }> {
+    return new Promise((resolve) => {
+      if (!this.peer || targetPin === this.myPin) {
+        resolve({ exists: false });
+        return;
+      }
+
+      const targetPeerId = `tenten-walkie-${targetPin}`;
+      let resolved = false;
+
+      const finish = (result: { exists: boolean; profile?: any }) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          resolve(result);
+        }
+      };
+
+      const timer = setTimeout(() => {
+        finish({ exists: false });
+      }, timeoutMs);
+
+      // Listen for profile response
+      const cleanupMsg = this.onMessage((msg) => {
+        if (msg.type === 'profile-response' && msg.senderPin === targetPin) {
+          cleanupMsg();
+          finish({ exists: true, profile: msg.profile });
+        }
+      });
+
+      // Try connecting to peer
+      try {
+        const conn = this.peer.connect(targetPeerId, { reliable: true });
+
+        conn.on('open', () => {
+          this.setupConnection(conn);
+          const queryMsg: BroadcastMessage = {
+            type: 'profile-query',
+            senderPin: this.myPin,
+            senderName: '',
+            targetPin,
+            timestamp: Date.now(),
+          };
+          try {
+            conn.send(JSON.stringify(queryMsg));
+          } catch {
+            // fallback
+          }
+        });
+
+        conn.on('error', () => {
+          cleanupMsg();
+          finish({ exists: false });
+        });
+      } catch {
+        cleanupMsg();
+        finish({ exists: false });
+      }
+    });
+  }
 }
 
 export const walkieP2P = new WalkieP2P();

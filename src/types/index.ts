@@ -1,3 +1,6 @@
+import type { ThemeId, AppTheme } from '../data/themes';
+export type { ThemeId, AppTheme };
+
 export interface Friend {
   id: string;
   name: string; // Displayed name (or user nickname)
@@ -7,6 +10,7 @@ export interface Friend {
   banner?: string; // Real uploaded gallery banner or theme
   noteStatus?: string;
   bio?: string;
+  age?: number;
   statusText: string;
   onlineStatus: 'online' | 'in-class' | 'dnd' | 'offline';
   lastActive: string;
@@ -21,22 +25,33 @@ export interface FriendRequest {
   banner?: string;
   noteStatus?: string;
   bio?: string;
+  age?: number;
   accentColor?: string;
   timestamp: number;
 }
 
 export interface UserProfile {
-  name: string;
+  name: string; // Nickname
   pin: string;
   avatar: string;
   banner: string; // gradient or image URL
   noteStatus: string;
   bio: string;
+  age?: number;
   accentColor: string;
-  themeId?: 'cyberpunk' | 'vintage' | 'mono' | 'amber';
+  themeId?: ThemeId;
 }
 
-export type { ThemeId, AppTheme } from '../data/themes';
+export interface FoundUser {
+  pin: string;
+  name: string;
+  avatar: string;
+  banner?: string;
+  noteStatus?: string;
+  bio?: string;
+  age?: number;
+  accentColor?: string;
+}
 
 export type VoiceFilter = 'classic-walkie' | 'crisp' | 'megaphone' | 'deep-radio';
 
@@ -65,7 +80,9 @@ export interface BroadcastMessage {
     | 'friend-accept'
     | 'friend-decline'
     | 'friend-remove'
-    | 'profile-update';
+    | 'profile-update'
+    | 'profile-query'
+    | 'profile-response';
   senderPin: string;
   senderName: string;
   targetPin?: string;
@@ -79,6 +96,7 @@ export interface BroadcastMessage {
     banner?: string;
     noteStatus?: string;
     bio?: string;
+    age?: number;
     accentColor?: string;
   };
 }
